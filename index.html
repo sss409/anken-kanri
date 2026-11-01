@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>案件管理</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>案件管理</h1>
+    <nav class="tabs" id="tabs">
+      <button data-tab="list">案件</button>
+      <button data-tab="calendar">カレンダー</button>
+      <button data-tab="billing">請求</button>
+      <button data-tab="done">完了済み</button>
+    </nav>
+    <div class="header-tools">
+      <button class="ghost" id="btn-export" title="全データをJSONファイルに保存">書き出し</button>
+      <button class="ghost" id="btn-import" title="JSONファイルから全データを置き換え">読み込み</button>
+      <input type="file" id="import-file" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <main>
+    <!-- 案件 -->
+    <section class="view" id="view-list">
+      <form class="card project-form" id="project-form" autocomplete="off" novalidate>
+        <h2 id="form-title">案件を追加</h2>
+
+        <label>クライアント
+          <input id="f-client" list="client-options" placeholder="例：〇〇チャンネル" required>
+          <datalist id="client-options"></datalist>
+        </label>
+
+        <label>案件名
+          <input id="f-title" placeholder="例：#12 雑談ショート">
+        </label>
+
+        <div class="field">
+          <span class="field-label">種別</span>
+          <div class="segmented" id="f-kind">
+            <button type="button" data-kind="short">ショート</button>
+            <button type="button" data-kind="long">ロング</button>
+          </div>
+        </div>
+
+        <div class="row2">
+          <label>単価（円）
+            <input id="f-price" type="number" min="0" step="100" inputmode="numeric" required>
+          </label>
+          <label>本数
+            <input id="f-count" type="number" min="1" step="1" inputmode="numeric" required>
+          </label>
+        </div>
+        <div class="amount-preview">金額 <b id="f-amount">¥0</b></div>
+
+        <div class="row2">
+          <label>着手日
+            <input id="f-start" type="date" required>
+          </label>
+          <label>納期
+            <input id="f-due" type="date" required>
+          </label>
+        </div>
+
+        <label>請求月 <small>（納期の月が自動で入ります）</small>
+          <input id="f-billing" type="month" required>
+        </label>
+
+        <label>メモ
+          <textarea id="f-memo" rows="2"></textarea>
+        </label>
+
+        <p class="form-error" id="form-error"></p>
+
+        <div class="form-actions">
+          <button type="submit" class="primary" id="btn-submit">追加</button>
+          <button type="button" class="ghost" id="btn-cancel" hidden>キャンセル</button>
+          <button type="button" class="danger-link" id="btn-delete" hidden>削除</button>
+        </div>
+      </form>
+
+      <div class="list-area">
+        <div class="list-head">
+          <h2>進行中</h2>
+          <span class="muted" id="active-summary"></span>
+        </div>
+        <div id="active-list"></div>
+      </div>
+    </section>
+
+    <!-- カレンダー -->
+    <section class="view" id="view-calendar">
+      <div class="view-head">
+        <div class="month-nav">
+          <button class="ghost" data-cal-shift="-1" aria-label="前の月">‹</button>
+          <h2 id="cal-label"></h2>
+          <button class="ghost" data-cal-shift="1" aria-label="次の月">›</button>
+          <button class="ghost small" id="cal-today">今月</button>
+        </div>
+        <label class="check"><input type="checkbox" id="cal-show-done"> 完了済みも表示</label>
+      </div>
+      <div class="calendar card" id="calendar"></div>
+      <p class="muted legend"><span class="kind-mark short">S</span>ショート <span class="kind-mark long">L</span>ロング　赤枠＝納期切れ　棒をクリックで編集</p>
+    </section>
+
+    <!-- 請求 -->
+    <section class="view" id="view-billing">
+      <div class="view-head">
+        <div class="month-nav">
+          <button class="ghost" data-bill-shift="-1" aria-label="前の月">‹</button>
+          <h2 id="bill-label"></h2>
+          <button class="ghost" data-bill-shift="1" aria-label="次の月">›</button>
+          <button class="ghost small" id="bill-today">今月</button>
+        </div>
+        <button class="ghost" id="btn-copy-billing">表をコピー</button>
+      </div>
+      <div id="billing"></div>
+    </section>
+
+    <!-- 完了済み -->
+    <section class="view" id="view-done">
+      <div class="view-head"><h2>完了済み</h2></div>
+      <div id="done-list"></div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" hidden>
+    <span id="toast-msg"></span>
+    <button id="toast-undo">元に戻す</button>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
