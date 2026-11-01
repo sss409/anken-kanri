@@ -89,6 +89,7 @@ h2 { font-size: 16px; }
   border-bottom: 1px solid var(--border);
 }
 .app-header h1 { font-size: 17px; }
+.app-header .version { font-size: 11px; font-weight: normal; color: var(--muted); margin-left: 2px; }
 .tabs { display: flex; gap: 4px; }
 .tabs button { white-space: nowrap; border: none; background: none; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-weight: 600; }
 .tabs button.active { background: var(--accent-soft); color: var(--accent); }

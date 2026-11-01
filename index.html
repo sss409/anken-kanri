@@ -8,7 +8,7 @@
 </head>
 <body>
   <header class="app-header">
-    <h1>案件管理</h1>
+    <h1>案件管理 <span class="version" id="app-version"></span></h1>
     <nav class="tabs" id="tabs">
       <button data-tab="list">案件</button>
       <button data-tab="clients">クライアント別</button>
@@ -138,6 +138,8 @@
     <button id="toast-undo">元に戻す</button>
   </div>
 
-  <script type="module" src="js/app.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>

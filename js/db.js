@@ -31,14 +31,14 @@ async function run(stores, mode, fn) {
   });
 }
 
-export const loadAll = () => run('projects', 'readonly', (tx) => tx.objectStore('projects').getAll());
-export const saveProject = (p) => run('projects', 'readwrite', (tx) => tx.objectStore('projects').put(p));
-export const deleteProject = (id) => run('projects', 'readwrite', (tx) => tx.objectStore('projects').delete(id));
+const loadAll = () => run('projects', 'readonly', (tx) => tx.objectStore('projects').getAll());
+const saveProject = (p) => run('projects', 'readwrite', (tx) => tx.objectStore('projects').put(p));
+const deleteProject = (id) => run('projects', 'readwrite', (tx) => tx.objectStore('projects').delete(id));
 
-export const loadInvoices = () => run('invoices', 'readonly', (tx) => tx.objectStore('invoices').getAll());
-export const saveInvoice = (r) => run('invoices', 'readwrite', (tx) => tx.objectStore('invoices').put(r));
+const loadInvoices = () => run('invoices', 'readonly', (tx) => tx.objectStore('invoices').getAll());
+const saveInvoice = (r) => run('invoices', 'readwrite', (tx) => tx.objectStore('invoices').put(r));
 
-export function replaceAll(projects, invoices) {
+function replaceAll(projects, invoices) {
   return run(['projects', 'invoices'], 'readwrite', (tx) => {
     const ps = tx.objectStore('projects');
     const is = tx.objectStore('invoices');

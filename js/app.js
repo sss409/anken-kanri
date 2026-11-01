@@ -1,8 +1,7 @@
-import { loadAll, saveProject, deleteProject, loadInvoices, saveInvoice, replaceAll } from './db.js';
-import {
-  fmtDate, parseDate, todayStr, monthOf, addDays, diffDays, shiftMonth, monthLabel,
-  shortDate, yen, KIND_LABEL, amountOf, esc, clientHue, newId,
-} from './util.js';
+// util.js・db.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
+
+// 配布時のバージョン。上げたら CHANGELOG.md も更新する
+const APP_VERSION = '0.3.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -699,6 +698,7 @@ function bindGlobal() {
 }
 
 async function init() {
+  $('app-version').textContent = `v${APP_VERSION}`;
   state.showDoneOnCal = prefGet('calShowDone', '0') === '1';
   bindGlobal();
   bindForm();
