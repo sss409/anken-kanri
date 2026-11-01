@@ -1,13 +1,14 @@
-// util.js・db.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
+// util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.3.0';
+const APP_VERSION = '0.4.0';
 
 const $ = (id) => document.getElementById(id);
 
 const state = {
   projects: [],
   invoices: new Map(), // "YYYY-MM|クライアント" → { invoicedAt, paidAt }
+  deleted: new Map(),  // 削除した案件 id → { id, deletedAt }
   tab: 'list',
   clientFilter: '',    // クライアント別タブで絞り込むクライアント（空ならすべて）
   editingId: null,
@@ -25,16 +26,39 @@ function prefSet(key, value) {
   try { localStorage.setItem(key, value); } catch { /* 保存できなくても動作は続ける */ }
 }
 
+const nowIso = () => new Date().toISOString();
+
+// 変更したレコードには updatedAt を付ける（同期で新しい方を残すため）
 async function upsert(p) {
+  p = { ...p, updatedAt: nowIso() };
   const i = state.projects.findIndex((x) => x.id === p.id);
   if (i >= 0) state.projects[i] = p; else state.projects.push(p);
   await saveProject(p);
   renderAll();
+  scheduleSync();
 }
 
 async function remove(id) {
+  const deletedAt = nowIso();
   state.projects = state.projects.filter((p) => p.id !== id);
-  await deleteProject(id);
+  state.deleted.set(id, { id, deletedAt });
+  await deleteProject(id, deletedAt);
+  renderAll();
+  scheduleSync();
+}
+
+// 同期用：今のデータ一式
+function localData() {
+  return { projects: state.projects, invoices: [...state.invoices.values()], deleted: [...state.deleted.values()] };
+}
+
+// 同期用：統合したデータで置き換える
+async function applyData(data) {
+  await replaceAll(data);
+  state.projects = data.projects;
+  state.invoices = new Map(data.invoices.map((r) => [r.key, r]));
+  state.deleted = new Map(data.deleted.map((d) => [d.id, d]));
+  if (state.editingId && !byId(state.editingId)) { resetForm(); closeSheet(); }
   renderAll();
 }
 
@@ -144,8 +168,23 @@ function startEdit(id) {
   form.billingTouched = p.billingMonth !== monthOf(p.dueDate);
   updateAmount();
   renderActiveList();
-  $('project-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  $('f-client').focus();
+  if (isNarrow()) openSheet();
+  else {
+    $('project-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('f-client').focus();
+  }
+}
+
+// スマホ幅では入力フォームを下から出るシートにする
+const isNarrow = () => matchMedia('(max-width: 860px)').matches;
+
+function openSheet() {
+  document.body.classList.add('sheet-open');
+  $('project-form').scrollTop = 0;
+}
+
+function closeSheet() {
+  document.body.classList.remove('sheet-open');
 }
 
 function readForm() {
@@ -176,11 +215,23 @@ async function onSubmit(e) {
   if (state.editingId) {
     await upsert({ ...byId(state.editingId), ...value });
     resetForm();
+    closeSheet();
   } else {
-    await upsert({ id: newId(), ...value, status: 'active', completedAt: null, createdAt: new Date().toISOString() });
+    await upsert({ id: newId(), ...value, status: 'active', completedAt: null, createdAt: nowIso() });
     resetForm({ keepClient: true });
-    $('f-title').focus();
+    if (isNarrow()) {
+      closeSheet();
+      showToast(`「${value.title || value.client}」を追加しました`, null);
+    } else {
+      $('f-title').focus();
+    }
   }
+}
+
+function openNewForm() {
+  if (state.editingId) resetForm();
+  if (state.tab !== 'list') setTab('list');
+  openSheet();
 }
 
 function bindForm() {
@@ -198,13 +249,19 @@ function bindForm() {
     if (!form.billingTouched && $('f-due').value) $('f-billing').value = monthOf($('f-due').value);
   });
   $('f-billing').addEventListener('input', () => { form.billingTouched = true; });
-  $('btn-cancel').addEventListener('click', () => { resetForm(); renderActiveList(); });
+  $('btn-cancel').addEventListener('click', () => { resetForm(); renderActiveList(); closeSheet(); });
+  $('btn-sheet-close').addEventListener('click', () => {
+    if (state.editingId) { resetForm(); renderActiveList(); }
+    closeSheet();
+  });
   $('btn-delete').addEventListener('click', async () => {
     const p = byId(state.editingId);
     if (!p || !confirm(`「${p.title || p.client}」を削除します。元に戻せません。`)) return;
     await remove(p.id);
     resetForm();
+    closeSheet();
   });
+  $('fab-add').addEventListener('click', openNewForm);
 }
 
 function renderClientOptions() {
@@ -261,7 +318,7 @@ function renderActiveList() {
     : '';
   $('active-list').innerHTML = active.length
     ? active.map((p) => projectRow(p, { mode: 'active' })).join('')
-    : '<p class="empty">進行中の案件はありません。左のフォームから追加してください。</p>';
+    : `<p class="empty">進行中の案件はありません。${isNarrow() ? '右下の「＋」' : '左のフォーム'}から追加してください。</p>`;
 }
 
 // ---------- 完了（ワンボタンで仕分け） ----------
@@ -400,9 +457,11 @@ function invoiceOf(month, client) {
 async function toggleInvoice(month, client, field) {
   const r = { ...invoiceOf(month, client) };
   r[field] = r[field] ? null : todayStr();
+  r.updatedAt = nowIso();
   state.invoices.set(r.key, r);
   await saveInvoice(r);
   renderAll();
+  scheduleSync();
 }
 
 function statusButtons(month, client) {
@@ -479,18 +538,18 @@ function renderBilling() {
         <tbody>
           ${rows.map((r) => `
             <tr style="${clientStyle(r.client)}">
-              <td><span class="client-chip">${esc(r.client)}</span>${r.pending ? `<span class="pending">未完了 ${r.pending}件</span>` : ''}</td>
-              <td class="num">${cell(r.short)}</td>
-              <td class="num">${cell(r.long)}</td>
-              <td class="num total">${yen(r.total)}</td>
+              <td class="name-col"><span class="client-chip">${esc(r.client)}</span>${r.pending ? `<span class="pending">未完了 ${r.pending}件</span>` : ''}</td>
+              <td class="num" data-label="ショート">${cell(r.short)}</td>
+              <td class="num" data-label="ロング">${cell(r.long)}</td>
+              <td class="num total" data-label="請求額">${yen(r.total)}</td>
               <td class="status-col"><div class="status-pair">${statusButtons(state.billMonth, r.client)}</div></td>
             </tr>`).join('')}
         </tbody>
         <tfoot><tr>
-          <td>合計</td>
-          <td class="num">${cell(sum.short)}</td>
-          <td class="num">${cell(sum.long)}</td>
-          <td class="num total">${yen(sum.total)}</td>
+          <td class="name-col">合計</td>
+          <td class="num" data-label="ショート">${cell(sum.short)}</td>
+          <td class="num" data-label="ロング">${cell(sum.long)}</td>
+          <td class="num total" data-label="請求額">${yen(sum.total)}</td>
           <td class="status-col muted">${paidSummary(state.billMonth, rows)}</td>
         </tr></tfoot>
       </table>
@@ -614,13 +673,29 @@ function renderCalendar() {
     html += `<div class="cal-week" style="grid-template-rows:26px repeat(${laneEnds.length}, 24px) minmax(10px, 1fr)">${cells}${bars}</div>`;
   }
   $('calendar').innerHTML = html;
+
+  // スマホ幅では棒に文字が入らないので、この月にかかる案件を納期順に並べる
+  const monthStart = `${state.calMonth}-01`;
+  const monthEnd = fmtDate(last);
+  const inMonth = items.filter((p) => p.startDate <= monthEnd && p.dueDate >= monthStart)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  $('cal-agenda').innerHTML = inMonth.length
+    ? `<h3 class="section-title">${monthLabel(state.calMonth)}の案件（納期順）</h3>` + inMonth.map((p) => {
+      const overdue = p.status === 'active' && p.dueDate < today;
+      return `<button class="agenda-item ${p.status === 'done' ? 'done' : ''} ${overdue ? 'overdue' : ''}" data-edit="${p.id}" style="${clientStyle(p.client)}">
+        <span class="agenda-due">${shortDate(p.dueDate)}<small>納期</small></span>
+        <span class="kind-mark ${p.kind}">${p.kind === 'short' ? 'S' : 'L'}</span>
+        <span class="agenda-main"><span class="client-chip">${esc(p.client)}</span> ${esc(p.title)}<small>${shortDate(p.startDate)} 着手</small></span>
+      </button>`;
+    }).join('')
+    : '';
 }
 
 // ---------- 書き出し・読み込み ----------
 
 function exportData() {
   const data = {
-    app: 'anken-kanri', version: 2, exportedAt: new Date().toISOString(),
+    app: 'anken-kanri', version: 3, exportedAt: nowIso(),
     projects: state.projects, invoices: [...state.invoices.values()],
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -642,12 +717,18 @@ async function importData(file) {
   const list = Array.isArray(data) ? data : data.projects;
   if (!Array.isArray(list)) { alert('案件データが見つかりませんでした'); return; }
   if (!confirm(`${list.length}件の案件で、今のデータ（${state.projects.length}件）を置き換えます。`)) return;
-  const invoices = Array.isArray(data.invoices) ? data.invoices : [];
-  await replaceAll(list, invoices);
-  state.projects = list;
-  state.invoices = new Map(invoices.map((r) => [r.key, r]));
+  // 同期先にも「置き換え」が伝わるよう、読み込んだものは今の日時で更新、無くなるものは削除として記録する
+  const now = nowIso();
+  const projects = list.map((p) => ({ ...p, updatedAt: now }));
+  const keepIds = new Set(projects.map((p) => p.id));
+  const deleted = new Map(state.deleted);
+  for (const p of state.projects) if (!keepIds.has(p.id)) deleted.set(p.id, { id: p.id, deletedAt: now });
+  for (const id of keepIds) deleted.delete(id);
+  const invoices = new Map([...state.invoices.values()].map((r) => [r.key, { ...r, invoicedAt: null, paidAt: null, updatedAt: now }]));
+  for (const r of Array.isArray(data.invoices) ? data.invoices : []) invoices.set(r.key, { ...r, updatedAt: now });
   resetForm();
-  renderAll();
+  await applyData({ projects, invoices: [...invoices.values()], deleted: [...deleted.values()] });
+  scheduleSync();
 }
 
 // ---------- 起動 ----------
@@ -688,13 +769,42 @@ function bindGlobal() {
     hideToast();
     if (undo) await undo();
   });
-  $('btn-export').addEventListener('click', exportData);
-  $('btn-import').addEventListener('click', () => $('import-file').click());
+  // メニュー（書き出し・読み込み・同期の解除）
+  const closeMenu = () => { $('menu').hidden = true; };
+  $('btn-menu').addEventListener('click', (e) => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
+  document.addEventListener('click', (e) => { if (!e.target.closest('#menu')) closeMenu(); });
+  $('btn-export').addEventListener('click', () => { closeMenu(); exportData(); });
+  $('btn-import').addEventListener('click', () => { closeMenu(); $('import-file').click(); });
   $('import-file').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     e.target.value = '';
     if (file) await importData(file);
   });
+  $('btn-sync').addEventListener('click', onSyncButton);
+  $('btn-sync-stop').addEventListener('click', () => {
+    closeMenu();
+    if (confirm('この端末の同期をやめます（データはこの端末とGoogleドライブの両方に残ります）')) stopSync();
+  });
+}
+
+const SYNC_LABEL = {
+  off: '同期を設定',
+  'needs-tap': 'タップして同期',
+  syncing: '同期中…',
+  error: '同期エラー',
+};
+
+function renderSyncStatus(status, detail) {
+  const b = $('btn-sync');
+  b.hidden = !Sync.available;
+  b.dataset.status = status;
+  const t = Sync.lastSyncAt;
+  b.textContent = status === 'ok'
+    ? (t ? `同期済み ${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}` : '同期済み')
+    : SYNC_LABEL[status];
+  b.title = detail || (status === 'off' ? 'Googleドライブを使って、PCとスマホのデータをそろえます' : '押すと今すぐ同期します');
+  $('btn-sync-stop').hidden = status === 'off' || !Sync.available;
+  if (status === 'error' && detail) showToast(`同期できませんでした：${detail}`, null);
 }
 
 async function init() {
@@ -705,8 +815,14 @@ async function init() {
   resetForm();
   state.projects = await loadAll();
   state.invoices = new Map((await loadInvoices()).map((r) => [r.key, r]));
+  state.deleted = new Map((await loadDeleted()).map((d) => [d.id, d]));
   const tab = prefGet('tab', 'list');
   setTab(['list', 'clients', 'calendar', 'billing', 'done'].includes(tab) ? tab : 'list');
+  initSync({ getLocal: localData, applyMerged: applyData, onStatus: renderSyncStatus });
+  // ホーム画面に追加したとき、電波がなくても開けるようにする（https か localhost のときだけ）
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
 }
 
 init();

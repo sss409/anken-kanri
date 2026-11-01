@@ -17,8 +17,9 @@ $stage = Join-Path $env:TEMP 'anken-kanri-dist'
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 $app = Join-Path $stage 'anken-kanri'
 New-Item -ItemType Directory -Path (Join-Path $app 'js') -Force | Out-Null
-Copy-Item (Join-Path $root 'index.html'), (Join-Path $root 'style.css') $app
+Copy-Item (Join-Path $root 'index.html'), (Join-Path $root 'style.css'), (Join-Path $root 'manifest.webmanifest'), (Join-Path $root 'sw.js') $app
 Copy-Item (Join-Path $root 'js\*.js') (Join-Path $app 'js')
+Copy-Item (Join-Path $root 'icons') $app -Recurse
 Copy-Item (Join-Path $root '配布用\README.txt') $app
 
 $dist = Join-Path $root 'dist'
