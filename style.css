@@ -90,7 +90,7 @@ h2 { font-size: 16px; }
 }
 .app-header h1 { font-size: 17px; }
 .tabs { display: flex; gap: 4px; }
-.tabs button { border: none; background: none; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-weight: 600; }
+.tabs button { white-space: nowrap; border: none; background: none; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-weight: 600; }
 .tabs button.active { background: var(--accent-soft); color: var(--accent); }
 .header-tools { margin-left: auto; display: flex; gap: 6px; }
 
@@ -198,6 +198,40 @@ main { padding: 20px; max-width: 1280px; margin: 0 auto; }
 .bill-detail .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bill-detail .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+.bill-table .status-col { text-align: right; }
+.status-pair { display: inline-flex; gap: 6px; }
+.status-btn { font-size: 12px; padding: 4px 10px; color: var(--muted); border-style: dashed; white-space: nowrap; }
+.status-btn small { font-size: 11px; opacity: .85; margin-left: 2px; }
+.status-btn.invoicedAt.on { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); font-weight: 700; }
+.status-btn.paidAt.on { background: var(--done); color: #fff; border: 1px solid var(--done); font-weight: 700; }
+.bill-state { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+.bill-state.none { background: var(--danger-soft); color: var(--danger); }
+.bill-state.wait { background: var(--warn-soft); color: var(--warn); }
+button.link { border: none; background: none; padding: 0; color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---------- クライアント別 ---------- */
+
+.client-filter { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.filter-chip { border-radius: 999px; padding: 4px 14px; font-weight: 600; color: var(--muted); }
+.filter-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.filter-chip[style].active { background: hsl(var(--hue) 55% 45%); border-color: hsl(var(--hue) 55% 45%); }
+
+.client-group { margin-bottom: 16px; border-top: 4px solid hsl(var(--hue) 60% 55%); overflow: hidden; }
+.client-group-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.client-chip.big { font-size: 15px; padding: 3px 14px; }
+.client-stats { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+.client-stats b { color: var(--text); font-size: 15px; margin-left: 2px; }
+.client-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 14px 16px; }
+.client-section { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.client-section h4 { font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
+.client-section.started h4::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); align-self: center; }
+.client-section.upcoming h4::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); align-self: center; }
+.client-section.finished h4::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--done); align-self: center; }
+.client-section .project-row { grid-template-columns: 78px 1fr auto auto; gap: 10px; padding: 8px 12px; }
+.client-section .tags .client-chip { display: none; }
+.client-section.finished .project-row { opacity: .85; }
+.small-empty { margin: 0; font-size: 12px; padding: 8px 0; }
+
 /* ---------- 完了済み ---------- */
 
 .done-month { margin-bottom: 24px; }
@@ -260,7 +294,9 @@ main { padding: 20px; max-width: 1280px; margin: 0 auto; }
 /* ---------- 狭い画面 ---------- */
 
 @media (max-width: 860px) {
-  .app-header { position: static; }
+  .app-header { position: static; gap: 10px; }
+  .tabs { width: 100%; overflow-x: auto; }
+  .tabs button { padding: 8px 10px; }
   main { padding: 16px; }
   #view-list.active { grid-template-columns: 1fr; }
   .project-form { position: static; }
@@ -270,4 +306,11 @@ main { padding: 20px; max-width: 1280px; margin: 0 auto; }
   .project-row .actions .btn-done { flex: 1; }
   .header-tools { margin-left: 0; }
   .cal-bar .bar-text { display: none; }
+  .client-columns { grid-template-columns: 1fr; }
+  .client-section .project-row { grid-template-columns: 1fr auto; }
+  .bill-table .status-col { text-align: left; }
+}
+
+@media (max-width: 1100px) {
+  .client-columns { grid-template-columns: 1fr; }
 }

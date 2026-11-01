@@ -11,6 +11,7 @@
     <h1>案件管理</h1>
     <nav class="tabs" id="tabs">
       <button data-tab="list">案件</button>
+      <button data-tab="clients">クライアント別</button>
       <button data-tab="calendar">カレンダー</button>
       <button data-tab="billing">請求</button>
       <button data-tab="done">完了済み</button>
@@ -88,6 +89,12 @@
         </div>
         <div id="active-list"></div>
       </div>
+    </section>
+
+    <!-- クライアント別 -->
+    <section class="view" id="view-clients">
+      <div class="client-filter" id="client-filter"></div>
+      <div id="client-groups"></div>
     </section>
 
     <!-- カレンダー -->

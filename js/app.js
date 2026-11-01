@@ -1,4 +1,4 @@
-import { loadAll, saveProject, deleteProject, replaceAll } from './db.js';
+import { loadAll, saveProject, deleteProject, loadInvoices, saveInvoice, replaceAll } from './db.js';
 import {
   fmtDate, parseDate, todayStr, monthOf, addDays, diffDays, shiftMonth, monthLabel,
   shortDate, yen, KIND_LABEL, amountOf, esc, clientHue, newId,
@@ -8,7 +8,9 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
   projects: [],
+  invoices: new Map(), // "YYYY-MM|クライアント" → { invoicedAt, paidAt }
   tab: 'list',
+  clientFilter: '',    // クライアント別タブで絞り込むクライアント（空ならすべて）
   editingId: null,
   calMonth: monthOf(todayStr()),
   billMonth: monthOf(todayStr()),
@@ -54,6 +56,7 @@ function setTab(tab) {
 function renderAll() {
   renderClientOptions();
   if (state.tab === 'list') renderActiveList();
+  if (state.tab === 'clients') renderClients();
   if (state.tab === 'calendar') renderCalendar();
   if (state.tab === 'billing') renderBilling();
   if (state.tab === 'done') renderDoneList();
@@ -295,6 +298,62 @@ async function markUndone(id) {
   if (p) await upsert({ ...p, status: 'active', completedAt: null });
 }
 
+// ---------- クライアント別 ----------
+
+function renderClients() {
+  const names = clientNames();
+  if (state.clientFilter && !names.includes(state.clientFilter)) state.clientFilter = '';
+  $('client-filter').innerHTML = [['', 'すべて'], ...names.map((n) => [n, n])].map(([v, label]) =>
+    `<button class="filter-chip ${state.clientFilter === v ? 'active' : ''}" data-client-filter="${esc(v)}"
+      ${v ? `style="${clientStyle(v)}"` : ''}>${esc(label)}</button>`).join('');
+
+  if (!names.length) {
+    $('client-groups').innerHTML = '<p class="empty">まだ案件がありません。案件タブから追加してください。</p>';
+    return;
+  }
+  const today = todayStr();
+  const bills = openBills();
+  const shown = state.clientFilter ? [state.clientFilter] : names;
+
+  $('client-groups').innerHTML = shown.map((client) => {
+    const ps = state.projects.filter((p) => p.client === client);
+    const byDue = (a, b) => a.dueDate.localeCompare(b.dueDate);
+    const started = ps.filter((p) => p.status === 'active' && p.startDate <= today).sort(byDue);
+    const upcoming = ps.filter((p) => p.status === 'active' && p.startDate > today).sort(byDue);
+    const done = ps.filter((p) => p.status === 'done').sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+    const mine = bills.filter((b) => b.client === client);
+    const waiting = mine.filter((b) => b.invoiced).reduce((s, b) => s + b.total, 0);
+    const unbilled = mine.filter((b) => !b.invoiced).reduce((s, b) => s + b.total, 0);
+
+    const section = (label, cls, list, mode, emptyText) => `
+      <div class="client-section ${cls}">
+        <h4>${label} <span class="muted">${list.length}件${list.length ? ` ・ ${yen(list.reduce((s, p) => s + amountOf(p), 0))}` : ''}</span></h4>
+        ${list.length ? list.map((p) => projectRow(p, { mode })).join('') : `<p class="muted small-empty">${emptyText}</p>`}
+      </div>`;
+
+    return `
+      <section class="card client-group" style="${clientStyle(client)}">
+        <header class="client-group-head">
+          <span class="client-chip big">${esc(client)}</span>
+          <div class="client-stats">
+            <span>着手中 <b>${started.length}</b></span>
+            ${upcoming.length ? `<span>着手前 <b>${upcoming.length}</b></span>` : ''}
+            <span>完了 <b>${done.length}</b></span>
+            ${unbilled ? `<span class="bill-state none">未請求 ${yen(unbilled)}</span>` : ''}
+            ${waiting ? `<span class="bill-state wait">入金待ち ${yen(waiting)}</span>` : ''}
+          </div>
+        </header>
+        <div class="client-columns">
+          <div>
+            ${section('着手中', 'started', started, 'active', '着手中の案件はありません')}
+            ${upcoming.length ? section('着手前', 'upcoming', upcoming, 'active', '') : ''}
+          </div>
+          ${section('完了', 'finished', done, 'done', '完了した案件はまだありません')}
+        </div>
+      </section>`;
+  }).join('');
+}
+
 // ---------- 完了済み ----------
 
 function renderDoneList() {
@@ -328,6 +387,47 @@ function renderDoneList() {
     html += '</section>';
   }
   $('done-list').innerHTML = html;
+}
+
+// ---------- 請求書・振込の状態 ----------
+
+const invKey = (month, client) => `${month}|${client}`;
+
+function invoiceOf(month, client) {
+  return state.invoices.get(invKey(month, client)) ?? { key: invKey(month, client), month, client, invoicedAt: null, paidAt: null };
+}
+
+// 押すたびに 済 ⇔ 未 を切り替える（済にした日を記録）
+async function toggleInvoice(month, client, field) {
+  const r = { ...invoiceOf(month, client) };
+  r[field] = r[field] ? null : todayStr();
+  state.invoices.set(r.key, r);
+  await saveInvoice(r);
+  renderAll();
+}
+
+function statusButtons(month, client) {
+  const r = invoiceOf(month, client);
+  const btn = (field, onLabel, offLabel) => {
+    const on = !!r[field];
+    return `<button class="status-btn ${field} ${on ? 'on' : ''}" data-inv="${field}" data-month="${month}" data-client="${esc(client)}"
+      title="${on ? 'クリックで未に戻す' : 'クリックで済にする'}">${on ? `${onLabel} <small>${shortDate(r[field])}</small>` : offLabel}</button>`;
+  };
+  return btn('invoicedAt', '発行済', '請求書 未発行') + btn('paidAt', '入金済', '振込 未確認');
+}
+
+// 今月までで入金が済んでいない請求（クライアント × 請求月）
+function openBills() {
+  const cur = monthOf(todayStr());
+  const months = [...new Set(state.projects.map((p) => p.billingMonth))].filter((m) => m <= cur).sort();
+  const list = [];
+  for (const m of months) {
+    for (const r of billingRows(m)) {
+      const inv = invoiceOf(m, r.client);
+      if (!inv.paidAt) list.push({ month: m, client: r.client, total: r.total, pending: r.pending, invoiced: !!inv.invoicedAt });
+    }
+  }
+  return list;
 }
 
 // ---------- 請求 ----------
@@ -364,7 +464,7 @@ function renderBilling() {
   $('bill-label').textContent = monthLabel(state.billMonth);
   const rows = billingRows(state.billMonth);
   if (!rows.length) {
-    $('billing').innerHTML = `<p class="empty">${monthLabel(state.billMonth)}が請求月の案件はありません。</p>`;
+    $('billing').innerHTML = `<p class="empty">${monthLabel(state.billMonth)}が請求月の案件はありません。</p>` + openBillsHtml();
     return;
   }
   const sum = rows.reduce((s, r) => ({
@@ -376,7 +476,7 @@ function renderBilling() {
   $('billing').innerHTML = `
     <div class="card table-card">
       <table class="bill-table">
-        <thead><tr><th>クライアント</th><th>ショート</th><th>ロング</th><th>請求額</th></tr></thead>
+        <thead><tr><th>クライアント</th><th>ショート</th><th>ロング</th><th>請求額</th><th class="status-col">請求書・振込</th></tr></thead>
         <tbody>
           ${rows.map((r) => `
             <tr style="${clientStyle(r.client)}">
@@ -384,6 +484,7 @@ function renderBilling() {
               <td class="num">${cell(r.short)}</td>
               <td class="num">${cell(r.long)}</td>
               <td class="num total">${yen(r.total)}</td>
+              <td class="status-col"><div class="status-pair">${statusButtons(state.billMonth, r.client)}</div></td>
             </tr>`).join('')}
         </tbody>
         <tfoot><tr>
@@ -391,6 +492,7 @@ function renderBilling() {
           <td class="num">${cell(sum.short)}</td>
           <td class="num">${cell(sum.long)}</td>
           <td class="num total">${yen(sum.total)}</td>
+          <td class="status-col muted">${paidSummary(state.billMonth, rows)}</td>
         </tr></tfoot>
       </table>
     </div>
@@ -407,14 +509,43 @@ function renderBilling() {
               <span class="num">${yen(p.unitPrice)} × ${p.count} = <b>${yen(amountOf(p))}</b></span>
             </li>`).join('')}
         </ul>
-      </details>`).join('')}`;
+      </details>`).join('')}
+    ${openBillsHtml()}`;
+}
+
+function paidSummary(month, rows) {
+  const paid = rows.filter((r) => invoiceOf(month, r.client).paidAt).reduce((s, r) => s + r.total, 0);
+  return `入金済 ${yen(paid)} / ${yen(rows.reduce((s, r) => s + r.total, 0))}`;
+}
+
+function openBillsHtml() {
+  const list = openBills();
+  if (!list.length) return '<h3 class="section-title">入金待ち・未請求（今月まで）</h3><p class="empty">入金待ちの請求はありません。</p>';
+  const total = list.reduce((s, b) => s + b.total, 0);
+  return `
+    <h3 class="section-title">入金待ち・未請求（今月まで） <span class="muted">${list.length}件 ・ ${yen(total)}</span></h3>
+    <div class="card table-card">
+      <table class="bill-table open-bills">
+        <tbody>
+          ${list.map((b) => `
+            <tr style="${clientStyle(b.client)}">
+              <td><button class="link" data-bill-month="${b.month}">${monthLabel(b.month)}</button></td>
+              <td><span class="client-chip">${esc(b.client)}</span>${b.pending ? `<span class="pending">未完了 ${b.pending}件</span>` : ''}</td>
+              <td><span class="bill-state ${b.invoiced ? 'wait' : 'none'}">${b.invoiced ? '入金待ち' : '未請求'}</span></td>
+              <td class="num total">${yen(b.total)}</td>
+              <td class="status-col"><div class="status-pair">${statusButtons(b.month, b.client)}</div></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 async function copyBilling() {
   const rows = billingRows(state.billMonth);
-  const lines = [['クライアント', 'ショート本数', 'ショート金額', 'ロング本数', 'ロング金額', '請求額'].join('\t')];
+  const lines = [['クライアント', 'ショート本数', 'ショート金額', 'ロング本数', 'ロング金額', '請求額', '請求書発行日', '入金確認日'].join('\t')];
   for (const r of rows) {
-    lines.push([r.client, r.short.count, r.short.amount, r.long.count, r.long.amount, r.total].join('\t'));
+    const inv = invoiceOf(state.billMonth, r.client);
+    lines.push([r.client, r.short.count, r.short.amount, r.long.count, r.long.amount, r.total, inv.invoicedAt ?? '', inv.paidAt ?? ''].join('\t'));
   }
   try {
     await navigator.clipboard.writeText(lines.join('\n'));
@@ -489,7 +620,10 @@ function renderCalendar() {
 // ---------- 書き出し・読み込み ----------
 
 function exportData() {
-  const data = { app: 'anken-kanri', version: 1, exportedAt: new Date().toISOString(), projects: state.projects };
+  const data = {
+    app: 'anken-kanri', version: 2, exportedAt: new Date().toISOString(),
+    projects: state.projects, invoices: [...state.invoices.values()],
+  };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -509,8 +643,10 @@ async function importData(file) {
   const list = Array.isArray(data) ? data : data.projects;
   if (!Array.isArray(list)) { alert('案件データが見つかりませんでした'); return; }
   if (!confirm(`${list.length}件の案件で、今のデータ（${state.projects.length}件）を置き換えます。`)) return;
-  await replaceAll(list);
+  const invoices = Array.isArray(data.invoices) ? data.invoices : [];
+  await replaceAll(list, invoices);
   state.projects = list;
+  state.invoices = new Map(invoices.map((r) => [r.key, r]));
   resetForm();
   renderAll();
 }
@@ -523,9 +659,12 @@ function bindGlobal() {
     if (b) setTab(b.dataset.tab);
   });
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-done],[data-undone],[data-edit]');
+    const t = e.target.closest('[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter]');
     if (!t) return;
-    if (t.dataset.done) markDone(t.dataset.done);
+    if (t.dataset.inv) toggleInvoice(t.dataset.month, t.dataset.client, t.dataset.inv);
+    else if (t.dataset.billMonth) { state.billMonth = t.dataset.billMonth; renderBilling(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    else if (t.dataset.clientFilter != null) { state.clientFilter = t.dataset.clientFilter; renderClients(); }
+    else if (t.dataset.done) markDone(t.dataset.done);
     else if (t.dataset.undone) markUndone(t.dataset.undone);
     else if (t.dataset.edit) startEdit(t.dataset.edit);
   });
@@ -565,7 +704,9 @@ async function init() {
   bindForm();
   resetForm();
   state.projects = await loadAll();
-  setTab(['list', 'calendar', 'billing', 'done'].includes(prefGet('tab', 'list')) ? prefGet('tab', 'list') : 'list');
+  state.invoices = new Map((await loadInvoices()).map((r) => [r.key, r]));
+  const tab = prefGet('tab', 'list');
+  setTab(['list', 'clients', 'calendar', 'billing', 'done'].includes(tab) ? tab : 'list');
 }
 
 init();
