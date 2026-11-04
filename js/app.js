@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.5.1';
+const APP_VERSION = '0.5.2';
 
 const $ = (id) => document.getElementById(id);
 
@@ -821,6 +821,11 @@ function bindGlobal() {
     const b = e.target.closest('[data-theme-pref]');
     if (b) { prefSet('theme', b.dataset.themePref); applyTheme(); }
   });
+  // ヘッダーのボタンは押すたびにライト⇔ダーク（「自動」はメニューの中で選ぶ）
+  $('btn-theme').addEventListener('click', () => {
+    prefSet('theme', document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+    applyTheme();
+  });
   // 「自動」のときは、端末のライト／ダークの切り替えにその場で合わせる（裏にいた間に変わった分は、戻ってきたときに合わせる）
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applyTheme(); });
@@ -835,7 +840,17 @@ function applyTheme() {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   document.querySelector('meta[name="theme-color"]').content = dark ? '#1e2128' : '#2f6fde';
   for (const b of $('theme-seg').querySelectorAll('button')) b.classList.toggle('active', b.dataset.themePref === pref);
+  // 押したらどうなるかを絵で出す（今ライトなら月、ダークなら太陽）
+  const btn = $('btn-theme');
+  btn.innerHTML = dark ? ICON_SUN : ICON_MOON;
+  btn.title = dark ? 'ライト（白基調）にする' : 'ダークにする';
+  btn.setAttribute('aria-label', btn.title);
 }
+
+const ICON_MOON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.6A8.5 8.5 0 0 1 9.4 3.5a8.5 8.5 0 1 0 11.1 11.1z" fill="currentColor"/></svg>';
+const ICON_SUN = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor"/>'
+  + '<g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2'
+  + 'M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></g></svg>';
 
 const SYNC_LABEL = {
   off: '同期を設定',
