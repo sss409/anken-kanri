@@ -173,12 +173,52 @@
     <button id="toast-undo">元に戻す</button>
   </div>
 
+  <!-- 請求書（請求タブの「請求書を作成」から開く。印刷するときはこの用紙だけが出る） -->
+  <section class="invoice-view" id="invoice-view" aria-label="請求書">
+    <div class="iv-bar no-print">
+      <button class="ghost" id="iv-close">← 戻る</button>
+      <h2 id="invoice-title"></h2>
+      <div class="iv-actions">
+        <button class="primary" id="iv-pdf" title="印刷画面の送信先を「PDFに保存」にして保存">PDFで保存</button>
+        <button id="iv-csv" title="テンプレートと同じ並びの CSV を保存（スプレッドシートで開ける）">CSVで保存</button>
+      </div>
+    </div>
+    <div class="iv-body">
+      <form class="card iv-form no-print" id="iv-form" autocomplete="off">
+        <label>宛名 <small>（「様」は自動で付きます）</small>
+          <input id="iv-to">
+        </label>
+        <label>自分の名前
+          <input id="iv-myname" placeholder="例：屋号や活動名">
+        </label>
+        <div class="row2">
+          <label>発効日
+            <input id="iv-issue" type="date">
+          </label>
+          <label>お支払期限
+            <input id="iv-due" type="date">
+          </label>
+        </div>
+        <label>お振込先
+          <textarea id="iv-bank" rows="3" placeholder="例：〇〇銀行 〇〇支店 普通 1234567&#10;口座名義 〇〇〇〇"></textarea>
+        </label>
+        <label>備考
+          <textarea id="iv-note" rows="2"></textarea>
+        </label>
+        <p class="iv-hint">宛名・自分の名前・お振込先・備考は次からも自動で入ります（同期もされます）。<br>
+          「PDFで保存」を押したら、印刷画面の送信先を「PDFに保存」にしてください。保存すると、この月のこのクライアントは「請求書 発行済」になります。</p>
+      </form>
+      <div class="iv-paper-wrap"><div class="invoice-paper" id="invoice-paper"></div></div>
+    </div>
+  </section>
+
   <button class="fab" id="fab-add" aria-label="案件を追加">＋</button>
 
   <script src="js/util.js"></script>
   <script src="js/db.js"></script>
   <script src="js/config.js"></script>
   <script src="js/sync.js"></script>
+  <script src="js/invoice.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

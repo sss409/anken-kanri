@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.5.2';
+const APP_VERSION = '0.6.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -9,6 +9,7 @@ const state = {
   projects: [],
   invoices: new Map(), // "YYYY-MM|クライアント" → { invoicedAt, paidAt }
   deleted: new Map(),  // 削除した案件 id → { id, deletedAt }
+  settings: null,      // 請求書の設定 { myName, bank, note, addressees: { クライアント: 宛名 }, updatedAt }
   tab: 'list',
   clientFilter: '',    // クライアント別タブで絞り込むクライアント（空ならすべて）
   editingId: null,
@@ -49,7 +50,10 @@ async function remove(id) {
 
 // 同期用：今のデータ一式
 function localData() {
-  return { projects: state.projects, invoices: [...state.invoices.values()], deleted: [...state.deleted.values()] };
+  return {
+    projects: state.projects, invoices: [...state.invoices.values()], deleted: [...state.deleted.values()],
+    settings: state.settings,
+  };
 }
 
 // 同期用：統合したデータで置き換える
@@ -58,6 +62,7 @@ async function applyData(data) {
   state.projects = data.projects;
   state.invoices = new Map(data.invoices.map((r) => [r.key, r]));
   state.deleted = new Map(data.deleted.map((d) => [d.id, d]));
+  if (data.settings !== undefined) saveSettingsLocal(data.settings);
   if (state.editingId && !byId(state.editingId)) { resetForm(); closeSheet(); }
   renderAll();
 }
@@ -502,7 +507,9 @@ function statusButtons(month, client) {
     return `<button class="status-btn ${field} ${on ? 'on' : ''}" data-inv="${field}" data-month="${month}" data-client="${esc(client)}"
       title="${on ? 'クリックで未に戻す' : 'クリックで済にする'}">${on ? `${onLabel} <small>${shortDate(r[field])}</small>` : offLabel}</button>`;
   };
-  return btn('invoicedAt', '発行済', '請求書 未発行') + btn('paidAt', '入金済', '振込 未確認');
+  return `<button class="status-btn make-invoice" data-make-invoice="1" data-month="${month}" data-client="${esc(client)}"
+      title="案件の内容から請求書を作り、PDF か CSV で保存する">請求書を作成</button>`
+    + btn('invoicedAt', '発行済', '請求書 未発行') + btn('paidAt', '入金済', '振込 未確認');
 }
 
 // 今月までで入金が済んでいない請求（クライアント × 請求月）
@@ -727,7 +734,7 @@ function renderCalendar() {
 function exportData() {
   const data = {
     app: 'anken-kanri', version: 3, exportedAt: nowIso(),
-    projects: state.projects, invoices: [...state.invoices.values()],
+    projects: state.projects, invoices: [...state.invoices.values()], settings: state.settings,
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -758,7 +765,8 @@ async function importData(file) {
   const invoices = new Map([...state.invoices.values()].map((r) => [r.key, { ...r, invoicedAt: null, paidAt: null, updatedAt: now }]));
   for (const r of Array.isArray(data.invoices) ? data.invoices : []) invoices.set(r.key, { ...r, updatedAt: now });
   resetForm();
-  await applyData({ projects, invoices: [...invoices.values()], deleted: [...deleted.values()] });
+  const settings = data.settings ? { ...data.settings, updatedAt: now } : state.settings;
+  await applyData({ projects, invoices: [...invoices.values()], deleted: [...deleted.values()], settings });
   scheduleSync();
 }
 
@@ -770,9 +778,10 @@ function bindGlobal() {
     if (b) setTab(b.dataset.tab);
   });
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter]');
+    const t = e.target.closest('[data-make-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter]');
     if (!t) return;
-    if (t.dataset.stage) toggleStage(t.dataset.id, t.dataset.stage);
+    if (t.dataset.makeInvoice) openInvoice(t.dataset.month, t.dataset.client);
+    else if (t.dataset.stage) toggleStage(t.dataset.id, t.dataset.stage);
     else if (t.dataset.inv) toggleInvoice(t.dataset.month, t.dataset.client, t.dataset.inv);
     else if (t.dataset.billMonth) { state.billMonth = t.dataset.billMonth; renderBilling(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     else if (t.dataset.clientFilter != null) { state.clientFilter = t.dataset.clientFilter; renderClients(); }
@@ -878,7 +887,9 @@ async function init() {
   state.showDoneOnCal = prefGet('calShowDone', '0') === '1';
   bindGlobal();
   bindForm();
+  bindInvoice();
   resetForm();
+  state.settings = loadSettingsLocal();
   state.projects = await loadAll();
   state.invoices = new Map((await loadInvoices()).map((r) => [r.key, r]));
   state.deleted = new Map((await loadDeleted()).map((d) => [d.id, d]));

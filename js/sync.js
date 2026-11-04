@@ -23,13 +23,15 @@ function mergeData(a, b) {
     if (p && (p.updatedAt ?? '') <= d.deletedAt) projects.delete(id);
   }
   const invoices = newerWins([...a.invoices, ...b.invoices], (r) => r.key, (r) => r.updatedAt);
-  return { projects: [...projects.values()], invoices: [...invoices.values()], deleted: [...deleted.values()] };
+  // 請求書の設定（自分の名前・振込先など）は丸ごと 1 つ。新しく変えた方を残す
+  const settings = (b.settings?.updatedAt ?? '') > (a.settings?.updatedAt ?? '') ? b.settings : (a.settings ?? b.settings ?? null);
+  return { projects: [...projects.values()], invoices: [...invoices.values()], deleted: [...deleted.values()], settings };
 }
 
 // 中身が同じか（並び順は問わない）
 function sameData(a, b) {
   const norm = (d) => JSON.stringify(['projects', 'invoices', 'deleted'].map((k) =>
-    [...d[k]].map((r) => JSON.stringify(r)).sort()));
+    [...d[k]].map((r) => JSON.stringify(r)).sort()).concat(JSON.stringify(d.settings ?? null)));
   return norm(a) === norm(b);
 }
 
@@ -177,7 +179,7 @@ const updateFile = (id, data) => drive(`https://www.googleapis.com/upload/drive/
   method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
 });
 
-const EMPTY = { projects: [], invoices: [], deleted: [] };
+const EMPTY = { projects: [], invoices: [], deleted: [], settings: null };
 
 async function syncNow() {
   if (Sync.running) { Sync.again = true; return; }
