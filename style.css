@@ -383,7 +383,7 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
   }
   body.sheet-open .fab { display: none; }
 
-  .toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(142px + env(safe-area-inset-bottom)); left: 12px; right: 12px; transform: none; max-width: none; justify-content: space-between; }
 
   .project-row { grid-template-columns: 1fr auto; }
   .project-row .due { grid-column: 1 / -1; flex-direction: row; gap: 8px; align-items: baseline; }
