@@ -168,6 +168,7 @@ main { padding: 20px; max-width: 1280px; margin: 0 auto; }
 .stage-tag.revision { background: var(--warn-soft); color: var(--warn); }
 .issued-tag { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap; background: var(--short-soft); color: var(--short); }
 .row-sub-btns { display: flex; gap: 6px; }
+.view-invoice { color: var(--short); border-color: var(--short); }
 .agenda-main .stage-tag { align-self: flex-start; }
 
 .btn-done { background: var(--done); border-color: var(--done); color: #fff; font-weight: 700; padding: 8px 16px; }
@@ -490,11 +491,36 @@ body.invoice-open .fab { display: none; }
   border: 1px solid var(--border); border-radius: 8px; padding: 7px 8px; width: 100%;
   background: var(--surface-2); font-size: 14px; color: var(--text); font-weight: normal;
 }
-.iv-bank { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 12px; margin: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.iv-bank legend { font-size: 12px; color: var(--muted); font-weight: 600; padding: 0 4px; }
-.iv-bank .bank-row-type { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+.iv-group { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 12px; margin: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.iv-group legend { font-size: 12px; color: var(--muted); font-weight: 600; padding: 0 4px; }
+.iv-group .bank-row-type { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
 .iv-hint { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
 .iv-paper-wrap { overflow-x: auto; }
+.iv-group .addr-row-zip { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+
+/* 発行した請求書（控え）を見ているときは、入力欄の代わりに案内を出す */
+.iv-viewinfo { display: none; padding: 16px; flex-direction: column; gap: 10px; position: sticky; top: 76px; }
+body.invoice-viewing .iv-viewinfo { display: flex; }
+body.invoice-viewing .iv-form { display: none; }
+.iv-viewinfo h3 { margin: 0; font-size: 15px; }
+.iv-viewinfo dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+.iv-viewinfo dt { color: var(--muted); }
+.iv-viewinfo dd { margin: 0; word-break: break-all; }
+.iv-viewinfo #iv-remake { align-self: flex-start; }
+.iv-changed { margin: 0; font-size: 12px; line-height: 1.6; padding: 8px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.iv-changed[hidden] { display: none; }
+
+/* 請求タブの「発行した請求書」 */
+.issued-list { display: flex; flex-direction: column; overflow: hidden; }
+.issued-item {
+  display: grid; grid-template-columns: 76px auto minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  border: none; border-bottom: 1px solid var(--border); border-left: 4px solid hsl(var(--hue) 60% 55%);
+  border-radius: 0; background: none; padding: 10px 14px; text-align: left;
+}
+.issued-item:last-child { border-bottom: none; }
+.issued-item:hover { background: var(--surface-2); }
+.issued-date { font-weight: 600; font-size: 13px; }
+.issued-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 用紙は画面の明るさに関係なく白地に黒 */
 .invoice-paper {
@@ -529,7 +555,9 @@ body.invoice-open .fab { display: none; }
 
 @media (max-width: 860px) {
   .iv-body { grid-template-columns: minmax(0, 1fr); padding: 12px; }
-  .iv-form { position: static; }
+  .iv-form, .iv-viewinfo { position: static; }
+  .issued-item { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .issued-item .invoice-kind { display: none; }
   .iv-bar h2 { flex-basis: 100%; order: 3; font-size: 14px; }
   .iv-actions { margin-left: auto; }
   .invoice-paper { padding: 24px 16px; font-size: 11px; }

@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.7.0';
+const APP_VERSION = '0.8.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -318,7 +318,9 @@ function projectRow(p, { mode }) {
       <div class="actions">
         ${actions}
         <div class="row-sub-btns">
-          <button class="ghost small" data-project-invoice="${p.id}" title="この案件だけの請求書を作る（単発の案件用）">請求書</button>
+          ${projectSnapshot(p)
+    ? `<button class="ghost small view-invoice" data-project-invoice="${p.id}" title="発行した請求書を見る">請求書を見る</button>`
+    : `<button class="ghost small" data-project-invoice="${p.id}" title="この案件だけの請求書を作る（単発の案件用）">請求書</button>`}
           <button class="ghost small" data-edit="${p.id}">編集</button>
         </div>
       </div>
@@ -525,7 +527,7 @@ function statusButtons(month, client) {
     issued = `<button class="status-btn invoicedAt on" disabled title="案件ごとに請求書を発行済み">発行済（案件別） <small>${shortDate(last)}</small></button>`;
   }
   return `<button class="status-btn make-invoice" data-make-invoice="1" data-month="${month}" data-client="${esc(client)}"
-      title="この月のこのクライアントの案件をまとめた請求書を作る（月末請求用）">請求書を作成</button>`
+      title="${monthSnapshot(month, client) ? '発行した請求書を見る' : 'この月のこのクライアントの案件をまとめた請求書を作る（月末請求用）'}">${monthSnapshot(month, client) ? '請求書を見る' : '請求書を作成'}</button>`
     + issued + btn('paidAt', '入金済', '振込 未確認');
 }
 
@@ -578,7 +580,7 @@ function renderBilling() {
   $('bill-label').textContent = monthLabel(state.billMonth);
   const rows = billingRows(state.billMonth);
   if (!rows.length) {
-    $('billing').innerHTML = `<p class="empty">${monthLabel(state.billMonth)}が請求月の案件はありません。</p>` + openBillsHtml();
+    $('billing').innerHTML = `<p class="empty">${monthLabel(state.billMonth)}が請求月の案件はありません。</p>` + openBillsHtml() + issuedListHtml();
     return;
   }
   const sum = rows.reduce((s, r) => ({
@@ -624,7 +626,8 @@ function renderBilling() {
             </li>`).join('')}
         </ul>
       </details>`).join('')}
-    ${openBillsHtml()}`;
+    ${openBillsHtml()}
+    ${issuedListHtml()}`;
 }
 
 function paidSummary(month, rows) {

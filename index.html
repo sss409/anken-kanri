@@ -191,9 +191,23 @@
         <label>自分の名前
           <input id="iv-myname" placeholder="例：屋号や活動名">
         </label>
-        <label>住所
-          <textarea id="iv-address" rows="2" placeholder="例：〒000-0000&#10;〇〇県〇〇市〇〇 1-2-3"></textarea>
-        </label>
+        <fieldset class="iv-group" id="iv-addr">
+          <legend>住所</legend>
+          <div class="row2 addr-row-zip">
+            <label>郵便番号
+              <input data-addr="zip" inputmode="numeric" placeholder="例：000-0000">
+            </label>
+            <label>都道府県
+              <input data-addr="pref" placeholder="例：〇〇県">
+            </label>
+          </div>
+          <label>市区町村・番地
+            <input data-addr="city" placeholder="例：〇〇市〇〇町 1-2-3">
+          </label>
+          <label>建物名・部屋番号
+            <input data-addr="building" placeholder="例：〇〇マンション 101">
+          </label>
+        </fieldset>
         <label>電話番号
           <input id="iv-tel" type="tel" inputmode="tel" placeholder="例：090-0000-0000">
         </label>
@@ -205,7 +219,7 @@
             <input id="iv-due" type="date">
           </label>
         </div>
-        <fieldset class="iv-bank" id="iv-bank">
+        <fieldset class="iv-group" id="iv-bank">
           <legend>お振込先</legend>
           <div class="row2">
             <label>銀行名
@@ -237,6 +251,19 @@
         <p class="iv-hint">宛名・自分の名前・住所・電話番号・お振込先・備考は次からも自動で入ります（同期もされます）。<br>
           「PDFで保存」を押したら、印刷画面の送信先を「PDFに保存」にしてください。保存すると、<span id="iv-issue-hint"></span>「請求書 発行済」になります。</p>
       </form>
+      <!-- 発行した請求書（控え）を見ているときだけ、入力欄の代わりに出す -->
+      <div class="card iv-viewinfo no-print" id="iv-viewinfo">
+        <h3>発行した請求書</h3>
+        <dl>
+          <dt>保存した日時</dt><dd id="iv-v-saved"></dd>
+          <dt>ファイル名</dt><dd id="iv-v-file"></dd>
+          <dt>請求額</dt><dd id="iv-v-total"></dd>
+        </dl>
+        <p class="iv-changed" id="iv-v-changed" hidden></p>
+        <p class="iv-hint">保存したときの内容のまま残しています。上の「PDFで保存」「CSVで保存」で、同じ内容をもう一度保存できます。<br>
+          案件や振込先を直したときは「作り直す」で、いまの内容から新しく作れます（保存すると控えも新しくなります）。</p>
+        <button class="ghost" id="iv-remake">作り直す</button>
+      </div>
       <div class="iv-paper-wrap"><div class="invoice-paper" id="invoice-paper"></div></div>
     </div>
   </section>
