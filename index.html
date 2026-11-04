@@ -177,7 +177,7 @@
   <section class="invoice-view" id="invoice-view" aria-label="請求書">
     <div class="iv-bar no-print">
       <button class="ghost" id="iv-close">← 戻る</button>
-      <h2 id="invoice-title"></h2>
+      <h2><span class="invoice-kind" id="invoice-kind"></span><span id="invoice-title"></span></h2>
       <div class="iv-actions">
         <button class="primary" id="iv-pdf" title="印刷画面の送信先を「PDFに保存」にして保存">PDFで保存</button>
         <button id="iv-csv" title="テンプレートと同じ並びの CSV を保存（スプレッドシートで開ける）">CSVで保存</button>
@@ -190,6 +190,12 @@
         </label>
         <label>自分の名前
           <input id="iv-myname" placeholder="例：屋号や活動名">
+        </label>
+        <label>住所
+          <textarea id="iv-address" rows="2" placeholder="例：〒000-0000&#10;〇〇県〇〇市〇〇 1-2-3"></textarea>
+        </label>
+        <label>電話番号
+          <input id="iv-tel" type="tel" inputmode="tel" placeholder="例：090-0000-0000">
         </label>
         <div class="row2">
           <label>発効日
@@ -228,8 +234,8 @@
         <label>備考
           <textarea id="iv-note" rows="2"></textarea>
         </label>
-        <p class="iv-hint">宛名・自分の名前・お振込先・備考は次からも自動で入ります（同期もされます）。<br>
-          「PDFで保存」を押したら、印刷画面の送信先を「PDFに保存」にしてください。保存すると、この月のこのクライアントは「請求書 発行済」になります。</p>
+        <p class="iv-hint">宛名・自分の名前・住所・電話番号・お振込先・備考は次からも自動で入ります（同期もされます）。<br>
+          「PDFで保存」を押したら、印刷画面の送信先を「PDFに保存」にしてください。保存すると、<span id="iv-issue-hint"></span>「請求書 発行済」になります。</p>
       </form>
       <div class="iv-paper-wrap"><div class="invoice-paper" id="invoice-paper"></div></div>
     </div>

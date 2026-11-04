@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.6.1';
+const APP_VERSION = '0.7.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -306,6 +306,7 @@ function projectRow(p, { mode }) {
           <span class="client-chip">${esc(p.client)}</span>
           <span class="kind-tag ${p.kind}">${KIND_LABEL[p.kind]}</span>
           ${mode === 'active' ? stageTag(p) : ''}
+          ${p.invoicedAt ? `<span class="issued-tag" title="案件別の請求書を発行済み">請求書発行 ${shortDate(p.invoicedAt)}</span>` : ''}
         </div>
         <div class="title">${esc(p.title) || '<span class="muted">（案件名なし）</span>'}</div>
         <div class="sub">${shortDate(p.startDate)} 〜 ${shortDate(p.dueDate)} ・ 請求 ${monthLabel(p.billingMonth)}${p.memo ? ` ・ ${esc(p.memo)}` : ''}</div>
@@ -316,7 +317,10 @@ function projectRow(p, { mode }) {
       </div>
       <div class="actions">
         ${actions}
-        <button class="ghost small" data-edit="${p.id}">編集</button>
+        <div class="row-sub-btns">
+          <button class="ghost small" data-project-invoice="${p.id}" title="この案件だけの請求書を作る（単発の案件用）">請求書</button>
+          <button class="ghost small" data-edit="${p.id}">編集</button>
+        </div>
       </div>
     </div>`;
 }
@@ -500,6 +504,12 @@ async function toggleInvoice(month, client, field) {
   scheduleSync();
 }
 
+// その月のそのクライアントの案件に、全部「案件別の請求書」を出し終えているか
+function issuedByProjects(month, client) {
+  const ps = state.projects.filter((p) => p.billingMonth === month && p.client === client);
+  return ps.length > 0 && ps.every((p) => p.invoicedAt);
+}
+
 function statusButtons(month, client) {
   const r = invoiceOf(month, client);
   const btn = (field, onLabel, offLabel) => {
@@ -507,9 +517,16 @@ function statusButtons(month, client) {
     return `<button class="status-btn ${field} ${on ? 'on' : ''}" data-inv="${field}" data-month="${month}" data-client="${esc(client)}"
       title="${on ? 'クリックで未に戻す' : 'クリックで済にする'}">${on ? `${onLabel} <small>${shortDate(r[field])}</small>` : offLabel}</button>`;
   };
+  // 案件別の請求書を全部出し終えた月は、まとめての請求書がなくても「発行済（案件別）」と出す（押せない）
+  let issued = btn('invoicedAt', '発行済', '請求書 未発行');
+  if (!r.invoicedAt && issuedByProjects(month, client)) {
+    const last = state.projects.filter((p) => p.billingMonth === month && p.client === client)
+      .map((p) => p.invoicedAt).sort().at(-1);
+    issued = `<button class="status-btn invoicedAt on" disabled title="案件ごとに請求書を発行済み">発行済（案件別） <small>${shortDate(last)}</small></button>`;
+  }
   return `<button class="status-btn make-invoice" data-make-invoice="1" data-month="${month}" data-client="${esc(client)}"
-      title="案件の内容から請求書を作り、PDF か CSV で保存する">請求書を作成</button>`
-    + btn('invoicedAt', '発行済', '請求書 未発行') + btn('paidAt', '入金済', '振込 未確認');
+      title="この月のこのクライアントの案件をまとめた請求書を作る（月末請求用）">請求書を作成</button>`
+    + issued + btn('paidAt', '入金済', '振込 未確認');
 }
 
 // 今月までで入金が済んでいない請求（クライアント × 請求月）
@@ -520,7 +537,8 @@ function openBills() {
   for (const m of months) {
     for (const r of billingRows(m)) {
       const inv = invoiceOf(m, r.client);
-      if (!inv.paidAt) list.push({ month: m, client: r.client, total: r.total, pending: r.pending, invoiced: !!inv.invoicedAt });
+      const invoiced = !!inv.invoicedAt || issuedByProjects(m, r.client);
+      if (!inv.paidAt) list.push({ month: m, client: r.client, total: r.total, pending: r.pending, invoiced });
     }
   }
   return list;
@@ -778,9 +796,10 @@ function bindGlobal() {
     if (b) setTab(b.dataset.tab);
   });
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-make-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter]');
+    const t = e.target.closest('[data-make-invoice],[data-project-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter]');
     if (!t) return;
     if (t.dataset.makeInvoice) openInvoice(t.dataset.month, t.dataset.client);
+    else if (t.dataset.projectInvoice) openProjectInvoice(t.dataset.projectInvoice);
     else if (t.dataset.stage) toggleStage(t.dataset.id, t.dataset.stage);
     else if (t.dataset.inv) toggleInvoice(t.dataset.month, t.dataset.client, t.dataset.inv);
     else if (t.dataset.billMonth) { state.billMonth = t.dataset.billMonth; renderBilling(); window.scrollTo({ top: 0, behavior: 'smooth' }); }

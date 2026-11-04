@@ -166,6 +166,8 @@ main { padding: 20px; max-width: 1280px; margin: 0 auto; }
 .stage-tag { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
 .stage-tag.draft { background: var(--accent-soft); color: var(--accent); }
 .stage-tag.revision { background: var(--warn-soft); color: var(--warn); }
+.issued-tag { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap; background: var(--short-soft); color: var(--short); }
+.row-sub-btns { display: flex; gap: 6px; }
 .agenda-main .stage-tag { align-self: flex-start; }
 
 .btn-done { background: var(--done); border-color: var(--done); color: #fff; font-weight: 700; padding: 8px 16px; }
@@ -412,6 +414,10 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
   .project-row .actions .stage-btn { flex: 1; padding: 10px 4px; }
   .project-row .actions .btn-done { flex: 1.4; padding: 10px; }
   .project-row .actions .small { padding: 8px 14px; font-size: 13px; }
+  /* 進み具合のボタンを 1 段目、請求書・編集を 2 段目に */
+  .project-row .actions { flex-wrap: wrap; }
+  .project-row .actions .stage-btns { flex: 1 1 100%; }
+  .project-row .actions .row-sub-btns { margin-left: auto; }
 
   .view-head { margin-bottom: 10px; }
   .month-nav h2 { min-width: 100px; font-size: 16px; }
@@ -468,7 +474,9 @@ body.invoice-open .fab { display: none; }
   position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: calc(10px + env(safe-area-inset-top)) 16px 10px; background: var(--surface); border-bottom: 1px solid var(--border);
 }
-.iv-bar h2 { flex: 1; font-size: 16px; min-width: 0; }
+.iv-bar h2 { flex: 1; font-size: 16px; min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.invoice-kind { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.invoice-kind[data-mode="project"] { background: var(--long-soft); color: var(--long); }
 .iv-actions { display: flex; gap: 8px; }
 .iv-body { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 20px; padding: 20px; max-width: 1200px; margin: 0 auto; align-items: start; }
 .iv-form { padding: 16px; display: flex; flex-direction: column; gap: 12px; position: sticky; top: 76px; }
@@ -499,7 +507,8 @@ body.invoice-open .fab { display: none; }
 .ip-parties { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 24px; }
 .ip-to { font-size: 18px; font-weight: 700; border-bottom: 1px solid #1a1a1a; padding: 0 4px 4px; min-width: 50%; }
 .ip-to span { margin-left: 12px; font-weight: normal; }
-.ip-from { text-align: right; font-size: 14px; white-space: pre-wrap; }
+.ip-from { text-align: right; font-size: 12px; line-height: 1.6; }
+.ip-from-name { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
 .ip-amount { display: inline-flex; align-items: baseline; gap: 24px; border-bottom: 2px solid #1a1a1a; padding: 0 4px 6px; margin-bottom: 24px; }
 .ip-amount span { font-size: 14px; }
 .ip-amount b { font-size: 24px; }

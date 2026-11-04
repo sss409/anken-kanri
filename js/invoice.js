@@ -1,5 +1,6 @@
 // 請求書を作る：docs/請求書テンプレート.csv と同じ並びで、画面で確かめて PDF（印刷）か CSV で保存する
-// 中身は「請求月 × クライアント」の案件から作る。宛名・自分の名前・振込先・備考は設定として保存し、同期する
+// 作り方は 2 通り：クライアント別（請求月の案件をまとめて・月末請求）と、案件別（単発の案件 1 件だけ）
+// 宛名・自分の名前・住所・電話番号・振込先・備考は設定として保存し、同期する
 
 const INVOICE_ROWS = 20; // テンプレートの明細の行数（多いときは行を足す）
 
@@ -22,7 +23,10 @@ function updateSettings(patch) {
 
 // ---------- 中身 ----------
 
-const inv = { month: null, client: null }; // 開いている請求書
+// 開いている請求書。mode は 'month'（クライアント別）か 'project'（案件別）
+const inv = { mode: null, month: null, client: null, projectId: null };
+
+const projectLabel = (p) => p.title || `${KIND_LABEL[p.kind]}動画編集`;
 
 // "2026-04-30" → "2026年04月30日"（テンプレートの書き方）
 const jpDate = (s) => (s ? `${s.slice(0, 4)}年${s.slice(5, 7)}月${s.slice(8, 10)}日` : '');
@@ -33,13 +37,21 @@ function monthEnd(ym) {
   return fmtDate(d);
 }
 
-function invoiceItems(month, client) {
+function invoiceProjects() {
+  if (inv.mode === 'project') {
+    const p = byId(inv.projectId);
+    return p ? [p] : [];
+  }
   return state.projects
-    .filter((p) => p.billingMonth === month && p.client === client)
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+    .filter((p) => p.billingMonth === inv.month && p.client === inv.client)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}
+
+function invoiceItems() {
+  return invoiceProjects()
     .map((p, i) => ({
       no: i + 1,
-      name: p.title ? `${p.title}（${KIND_LABEL[p.kind]}）` : `${KIND_LABEL[p.kind]}動画編集`,
+      name: p.title ? `${p.title}（${KIND_LABEL[p.kind]}）` : projectLabel(p),
       qty: p.count,
       price: p.unitPrice,
       amount: amountOf(p),
@@ -47,10 +59,12 @@ function invoiceItems(month, client) {
 }
 
 function invoiceData() {
-  const items = invoiceItems(inv.month, inv.client);
+  const items = invoiceItems();
   return {
     to: $('iv-to').value.trim(),
     myName: $('iv-myname').value.trim(),
+    address: $('iv-address').value.trim(),
+    tel: $('iv-tel').value.trim(),
     issue: $('iv-issue').value,
     due: $('iv-due').value,
     bank: bankLines(readBank()),
@@ -81,24 +95,47 @@ function bankLines(b) {
   return [line1, line2].filter(Boolean);
 }
 
-// 例：5月分請求書_自分の名前_〇〇様（これまでの請求書のファイル名にそろえる）
+// これまでの請求書のファイル名にそろえる
+// クライアント別：5月分請求書_自分の名前_〇〇様　／　案件別：請求書_案件名_自分の名前_〇〇様
 function invoiceFileName(d) {
-  return `${Number(inv.month.slice(5))}月分請求書_${d.myName || '自分の名前'}_${d.to}様`.replace(/[\\/:*?"<>|]/g, '_');
+  const head = inv.mode === 'project'
+    ? `請求書_${projectLabel(byId(inv.projectId))}`
+    : `${Number(inv.month.slice(5))}月分請求書`;
+  return `${head}_${d.myName || '自分の名前'}_${d.to}様`.replace(/[\\/:*?"<>|]/g, '_');
 }
 
 // ---------- 画面 ----------
 
+// クライアント別：発効日は請求月の末日、お支払期限は翌月の末日
 function openInvoice(month, client) {
-  inv.month = month;
-  inv.client = client;
+  showInvoice({ mode: 'month', month, client, projectId: null },
+    monthEnd(month), monthEnd(shiftMonth(month, 1)), `${monthLabel(month)}分　${client}`);
+}
+
+// 案件別（単発）：発効日は今日、お支払期限は翌月の末日
+function openProjectInvoice(id) {
+  const p = byId(id);
+  if (!p) return;
+  const today = todayStr();
+  showInvoice({ mode: 'project', month: p.billingMonth, client: p.client, projectId: id },
+    today, monthEnd(shiftMonth(monthOf(today), 1)), `案件「${projectLabel(p)}」　${p.client}`);
+}
+
+function showInvoice(target, issue, due, title) {
+  Object.assign(inv, target);
   const s = state.settings ?? {};
-  $('iv-to').value = s.addressees?.[client] ?? client;
+  $('iv-to').value = s.addressees?.[inv.client] ?? inv.client;
   $('iv-myname').value = s.myName ?? '';
-  $('iv-issue').value = monthEnd(month);                 // 発効日：請求月の末日
-  $('iv-due').value = monthEnd(shiftMonth(month, 1));    // お支払期限：翌月の末日
+  $('iv-address').value = s.myAddress ?? '';
+  $('iv-tel').value = s.myTel ?? '';
+  $('iv-issue').value = issue;
+  $('iv-due').value = due;
   writeBank(s.bankInfo ?? {});
   $('iv-note').value = s.note ?? '';
-  $('invoice-title').textContent = `${monthLabel(month)}分　${client}`;
+  $('invoice-title').textContent = title;
+  $('invoice-kind').textContent = inv.mode === 'project' ? '案件別（単発）' : 'クライアント別（月末まとめ）';
+  $('invoice-kind').dataset.mode = inv.mode;
+  $('iv-issue-hint').textContent = inv.mode === 'project' ? 'この案件は' : 'この月のこのクライアントは';
   document.body.classList.add('invoice-open');
   $('invoice-view').scrollTop = 0;
   renderInvoicePaper();
@@ -106,7 +143,7 @@ function openInvoice(month, client) {
 
 function closeInvoice() {
   document.body.classList.remove('invoice-open');
-  inv.month = null;
+  inv.mode = null;
 }
 
 function renderInvoicePaper() {
@@ -119,7 +156,11 @@ function renderInvoicePaper() {
     <div class="ip-issue">発効日: ${jpDate(d.issue)}</div>
     <div class="ip-parties">
       <div class="ip-to">${esc(d.to)}<span>様</span></div>
-      <div class="ip-from">${esc(d.myName)}</div>
+      <div class="ip-from">
+        <div class="ip-from-name">${esc(d.myName)}</div>
+        ${d.address ? `<div>${lines(d.address)}</div>` : ''}
+        ${d.tel ? `<div>TEL：${esc(d.tel)}</div>` : ''}
+      </div>
     </div>
     <div class="ip-amount"><span>今回御請求額</span><b>${yen(d.total)}</b></div>
     <table class="ip-table">
@@ -134,9 +175,15 @@ function renderInvoicePaper() {
     <div class="ip-block"><h3>備考</h3><p>${lines(d.note)}</p></div>`;
 }
 
-// 保存したら、その月のそのクライアントを「請求書 発行済」にする
+// 保存したら「請求書 発行済」にする。クライアント別はその月のそのクライアント、案件別はその案件
 function markIssued() {
-  if (!invoiceOf(inv.month, inv.client).invoicedAt) {
+  if (inv.mode === 'project') {
+    const p = byId(inv.projectId);
+    if (p && !p.invoicedAt) {
+      upsert({ ...p, invoicedAt: todayStr() });
+      showToast(`「${projectLabel(p)}」を「請求書 発行済」にしました`, null);
+    }
+  } else if (!invoiceOf(inv.month, inv.client).invoicedAt) {
     toggleInvoice(inv.month, inv.client, 'invoicedAt');
     showToast(`${monthLabel(inv.month)}分の${inv.client}を「請求書 発行済」にしました`, null);
   }
@@ -166,7 +213,8 @@ const csvCell = (v) => {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-// テンプレートと同じ 6 列・同じ行の位置に入れる（A 列は空き）。宛名と自分の名前はテンプレートの空き行（6 行目）に置く
+// テンプレートと同じ 6 列・同じ行の位置に入れる（A 列は空き）
+// 宛名・自分の名前・住所・電話番号は、テンプレートの空き行（5〜7 行目）に置く
 function invoiceCsv(d) {
   const row = (cells = {}) => {
     const r = Array(6).fill('');
@@ -174,8 +222,10 @@ function invoiceCsv(d) {
     return r;
   };
   const out = [
-    row(), row({ 1: '請求書' }), row(), row({ 4: '発効日:', 5: jpDate(d.issue) }), row(),
-    row({ 1: `${d.to} 様`, 4: d.myName }), row(),
+    row(), row({ 1: '請求書' }), row(), row({ 4: '発効日:', 5: jpDate(d.issue) }),
+    row({ 4: d.myName }),
+    row({ 1: `${d.to} 様`, 4: d.address.replace(/\s*\n\s*/g, ' ') }),
+    row({ 4: d.tel ? `TEL：${d.tel}` : '' }),
     row({ 1: '今回御請求額' }), row({ 1: yen(d.total) }), row(), row(),
     row({ 1: 'No.', 2: '品名・作業内容', 3: '数量', 4: '単価', 5: '金額' }),
   ];
@@ -218,6 +268,8 @@ function bindInvoice() {
       const addressees = { ...(state.settings?.addressees ?? {}), [inv.client]: e.target.value.trim() };
       updateSettings({ addressees });
     } else if (id === 'iv-myname') updateSettings({ myName: e.target.value.trim() });
+    else if (id === 'iv-address') updateSettings({ myAddress: e.target.value });
+    else if (id === 'iv-tel') updateSettings({ myTel: e.target.value.trim() });
     else if (e.target.dataset.bank) updateSettings({ bankInfo: readBank() });
     else if (id === 'iv-note') updateSettings({ note: e.target.value });
     renderInvoicePaper();
