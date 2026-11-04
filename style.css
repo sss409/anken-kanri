@@ -20,31 +20,32 @@
   --chip-l: 92%;
   --chip-text-l: 30%;
   --bar-l: 86%;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15171c;
-    --surface: #1e2128;
-    --surface-2: #252932;
-    --border: #333844;
-    --text: #e7e9ee;
-    --muted: #9aa1ae;
-    --accent: #6c9cf0;
-    --accent-soft: #263552;
-    --short: #4cc7b5;
-    --short-soft: #183a36;
-    --long: #ab8bf0;
-    --long-soft: #30284a;
-    --danger: #f07070;
-    --danger-soft: #4a2222;
-    --warn: #f0b24c;
-    --warn-soft: #43361c;
-    --done: #6cc77c;
-    --chip-l: 26%;
-    --chip-text-l: 82%;
-    --bar-l: 32%;
-  }
+/* ダーク（「⋯」メニューの表示の切り替え、または「自動」で端末がダークのとき。index.html の先頭で data-theme を決める） */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #15171c;
+  --surface: #1e2128;
+  --surface-2: #252932;
+  --border: #333844;
+  --text: #e7e9ee;
+  --muted: #9aa1ae;
+  --accent: #6c9cf0;
+  --accent-soft: #263552;
+  --short: #4cc7b5;
+  --short-soft: #183a36;
+  --long: #ab8bf0;
+  --long-soft: #30284a;
+  --danger: #f07070;
+  --danger-soft: #4a2222;
+  --warn: #f0b24c;
+  --warn-soft: #43361c;
+  --done: #6cc77c;
+  --chip-l: 26%;
+  --chip-text-l: 82%;
+  --bar-l: 32%;
 }
 
 * { box-sizing: border-box; }
@@ -325,6 +326,11 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
 .menu button:hover { background: var(--surface-2); }
 .menu button small { font-weight: normal; color: var(--muted); font-size: 11px; }
 .menu button[hidden] { display: none; }
+.menu-theme { display: flex; align-items: center; gap: 10px; padding: 8px 12px 10px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.menu-theme > span { font-weight: 600; font-size: 13px; white-space: nowrap; }
+.theme-seg { flex: 1; grid-template-columns: repeat(3, 1fr); }
+.menu .theme-seg button { padding: 6px 4px; text-align: center; display: block; font-size: 12px; }
+.theme-seg button.active { background: var(--accent-soft); color: var(--accent); }
 #btn-sync-stop { color: var(--danger); border-top: 1px solid var(--border); border-radius: 0 0 8px 8px; }
 
 .form-head { display: flex; align-items: center; justify-content: space-between; }

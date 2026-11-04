@@ -11,6 +11,15 @@
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="style.css">
+  <script>
+    // 表示の明るさ（auto＝端末に合わせる / light / dark）。描画の前に決めて、白く光らないようにする
+    (function () {
+      var pref = 'auto';
+      try { pref = localStorage.getItem('theme') || 'auto'; } catch (e) { /* 読めなければ自動 */ }
+      var dark = pref === 'dark' || (pref === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    })();
+  </script>
 </head>
 <body>
   <header class="app-header">
@@ -27,6 +36,14 @@
       <div class="menu-wrap">
         <button class="ghost icon-btn" id="btn-menu" aria-label="メニュー" title="メニュー">⋯</button>
         <div class="menu card" id="menu" hidden>
+          <div class="menu-theme">
+            <span>表示</span>
+            <div class="segmented theme-seg" id="theme-seg">
+              <button data-theme-pref="auto" title="端末の設定に合わせる">自動</button>
+              <button data-theme-pref="light">ライト</button>
+              <button data-theme-pref="dark">ダーク</button>
+            </div>
+          </div>
           <button id="btn-export">書き出し<small>全データをJSONファイルに保存</small></button>
           <button id="btn-import">読み込み<small>JSONファイルの内容で置き換え</small></button>
           <button id="btn-sync-stop" hidden>この端末の同期をやめる</button>

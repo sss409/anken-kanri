@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.5.0';
+const APP_VERSION = '0.5.1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -817,6 +817,24 @@ function bindGlobal() {
     closeMenu();
     if (confirm('この端末の同期をやめます（データはこの端末とGoogleドライブの両方に残ります）')) stopSync();
   });
+  $('theme-seg').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-theme-pref]');
+    if (b) { prefSet('theme', b.dataset.themePref); applyTheme(); }
+  });
+  // 「自動」のときは、端末のライト／ダークの切り替えにその場で合わせる（裏にいた間に変わった分は、戻ってきたときに合わせる）
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applyTheme(); });
+}
+
+// ---------- 表示の明るさ ----------
+
+// 最初の決定は index.html の先頭でしている。ここでは切り替えと、ボタン・ブラウザのバーの色を合わせる
+function applyTheme() {
+  const pref = prefGet('theme', 'auto');
+  const dark = pref === 'dark' || (pref === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#1e2128' : '#2f6fde';
+  for (const b of $('theme-seg').querySelectorAll('button')) b.classList.toggle('active', b.dataset.themePref === pref);
 }
 
 const SYNC_LABEL = {
@@ -841,6 +859,7 @@ function renderSyncStatus(status, detail) {
 
 async function init() {
   $('app-version').textContent = `v${APP_VERSION}`;
+  applyTheme();
   state.showDoneOnCal = prefGet('calShowDone', '0') === '1';
   bindGlobal();
   bindForm();
