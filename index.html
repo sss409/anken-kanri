@@ -199,9 +199,32 @@
             <input id="iv-due" type="date">
           </label>
         </div>
-        <label>お振込先
-          <textarea id="iv-bank" rows="3" placeholder="例：〇〇銀行 〇〇支店 普通 1234567&#10;口座名義 〇〇〇〇"></textarea>
-        </label>
+        <fieldset class="iv-bank" id="iv-bank">
+          <legend>お振込先</legend>
+          <div class="row2">
+            <label>銀行名
+              <input data-bank="bank" placeholder="例：〇〇銀行">
+            </label>
+            <label>支店名
+              <input data-bank="branch" placeholder="例：〇〇支店">
+            </label>
+          </div>
+          <div class="row2 bank-row-type">
+            <label>種別
+              <select data-bank="type">
+                <option>普通</option>
+                <option>当座</option>
+                <option>貯蓄</option>
+              </select>
+            </label>
+            <label>口座番号
+              <input data-bank="number" inputmode="numeric" placeholder="例：1234567">
+            </label>
+          </div>
+          <label>口座名義（カナ）
+            <input data-bank="holder" placeholder="例：〇〇 〇〇">
+          </label>
+        </fieldset>
         <label>備考
           <textarea id="iv-note" rows="2"></textarea>
         </label>

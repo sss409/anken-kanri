@@ -15,7 +15,7 @@ function saveSettingsLocal(s) {
 }
 
 function updateSettings(patch) {
-  const cur = state.settings ?? { myName: '', bank: '', note: '', addressees: {} };
+  const cur = state.settings ?? { myName: '', bankInfo: {}, note: '', addressees: {} };
   saveSettingsLocal({ ...cur, ...patch, updatedAt: nowIso() });
   scheduleSync();
 }
@@ -53,11 +53,32 @@ function invoiceData() {
     myName: $('iv-myname').value.trim(),
     issue: $('iv-issue').value,
     due: $('iv-due').value,
-    bank: $('iv-bank').value.trim(),
+    bank: bankLines(readBank()),
     note: $('iv-note').value.trim(),
     items,
     total: items.reduce((s, it) => s + it.amount, 0),
   };
+}
+
+// ---------- お振込先（銀行名・支店名・種別・口座番号・口座名義） ----------
+
+const bankInputs = () => $('iv-bank').querySelectorAll('[data-bank]');
+
+function readBank() {
+  const b = {};
+  for (const el of bankInputs()) b[el.dataset.bank] = el.value.trim();
+  return b;
+}
+
+function writeBank(b) {
+  for (const el of bankInputs()) el.value = b[el.dataset.bank] ?? (el.tagName === 'SELECT' ? '普通' : '');
+}
+
+// 請求書に載せる 2 行：「〇〇銀行 〇〇支店　普通 1234567」「口座名義：〇〇」（空の項目は詰める）
+function bankLines(b) {
+  const line1 = [[b.bank, b.branch].filter(Boolean).join(' '), b.number ? `${b.type} ${b.number}` : ''].filter(Boolean).join('　');
+  const line2 = b.holder ? `口座名義：${b.holder}` : '';
+  return [line1, line2].filter(Boolean);
 }
 
 // 例：5月分請求書_自分の名前_〇〇様（これまでの請求書のファイル名にそろえる）
@@ -75,7 +96,7 @@ function openInvoice(month, client) {
   $('iv-myname').value = s.myName ?? '';
   $('iv-issue').value = monthEnd(month);                 // 発効日：請求月の末日
   $('iv-due').value = monthEnd(shiftMonth(month, 1));    // お支払期限：翌月の末日
-  $('iv-bank').value = s.bank ?? '';
+  writeBank(s.bankInfo ?? {});
   $('iv-note').value = s.note ?? '';
   $('invoice-title').textContent = `${monthLabel(month)}分　${client}`;
   document.body.classList.add('invoice-open');
@@ -108,7 +129,7 @@ function renderInvoicePaper() {
         : '<tr><td></td><td></td><td></td><td></td><td></td></tr>')).join('')}</tbody>
       <tfoot><tr><td colspan="4">合計金額</td><td class="n">${yen(d.total)}</td></tr></tfoot>
     </table>
-    <div class="ip-block"><h3>お振込先</h3><p>${lines(d.bank)}</p></div>
+    <div class="ip-block"><h3>お振込先</h3><p>${d.bank.map(esc).join('<br>')}</p></div>
     <div class="ip-due">お支払期限: ${jpDate(d.due)}</div>
     <div class="ip-block"><h3>備考</h3><p>${lines(d.note)}</p></div>`;
 }
@@ -162,9 +183,8 @@ function invoiceCsv(d) {
   while (items.length < INVOICE_ROWS) items.push(null);
   for (const it of items) out.push(it ? row({ 1: it.no, 2: it.name, 3: it.qty, 4: it.price, 5: it.amount }) : row());
   out.push(row({ 1: '合計金額', 5: d.total }), row(), row({ 1: 'お振込先' }));
-  const bank = d.bank ? d.bank.split('\n') : [];
-  while (bank.length < 2) bank.push('');
-  for (const b of bank) out.push(row({ 1: b }));
+  // テンプレートの振込先は 2 行（36・37 行目）
+  for (const b of [...d.bank, '', ''].slice(0, 2)) out.push(row({ 1: b }));
   out.push(row({ 1: 'お支払期限:', 2: jpDate(d.due) }), row(), row({ 1: '備考', 2: d.note.replace(/\n/g, ' ') }));
   return out.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }
@@ -198,7 +218,7 @@ function bindInvoice() {
       const addressees = { ...(state.settings?.addressees ?? {}), [inv.client]: e.target.value.trim() };
       updateSettings({ addressees });
     } else if (id === 'iv-myname') updateSettings({ myName: e.target.value.trim() });
-    else if (id === 'iv-bank') updateSettings({ bank: e.target.value });
+    else if (e.target.dataset.bank) updateSettings({ bankInfo: readBank() });
     else if (id === 'iv-note') updateSettings({ note: e.target.value });
     renderInvoicePaper();
   });
