@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.8.0';
+const APP_VERSION = '0.8.1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -844,6 +844,10 @@ function bindGlobal() {
     if (file) await importData(file);
   });
   $('btn-sync').addEventListener('click', onSyncButton);
+  $('btn-data-info').addEventListener('click', () => { closeMenu(); $('data-info').showModal(); });
+  $('data-info-close').addEventListener('click', () => $('data-info').close());
+  // 外側（暗くなった所）を押しても閉じる
+  $('data-info').addEventListener('click', (e) => { if (e.target === $('data-info')) $('data-info').close(); });
   $('btn-sync-stop').addEventListener('click', () => {
     closeMenu();
     if (confirm('この端末の同期をやめます（データはこの端末とGoogleドライブの両方に残ります）')) stopSync();

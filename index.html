@@ -47,6 +47,7 @@
           </div>
           <button id="btn-export">書き出し<small>全データをJSONファイルに保存</small></button>
           <button id="btn-import">読み込み<small>JSONファイルの内容で置き換え</small></button>
+          <button id="btn-data-info">データの扱いについて<small>保存場所・同期・消し方</small></button>
           <button id="btn-sync-stop" hidden>この端末の同期をやめる</button>
         </div>
       </div>
@@ -267,6 +268,55 @@
       <div class="iv-paper-wrap"><div class="invoice-paper" id="invoice-paper"></div></div>
     </div>
   </section>
+
+  <!-- データの扱いについて（「⋯」メニューから開く） -->
+  <dialog class="info-dialog" id="data-info" aria-labelledby="data-info-title">
+    <div class="info-head">
+      <h2 id="data-info-title">データの扱いについて</h2>
+      <button class="ghost icon-btn" id="data-info-close" aria-label="閉じる">✕</button>
+    </div>
+    <div class="info-body">
+      <section>
+        <h3>どこに保存されるか</h3>
+        <ul>
+          <li>入力した案件・請求の状態・請求書の設定（名前・住所・電話番号・振込先など）は、<b>この端末のブラウザの中</b>に保存されます。</li>
+          <li>開いたブラウザごとに別々です（Chrome と Edge、PC とスマホでは別のデータになります）。</li>
+          <li>開発者のサーバーなど、ほかの場所には送っていません。</li>
+        </ul>
+      </section>
+      <section>
+        <h3>同期を設定したとき</h3>
+        <ul>
+          <li>データは、<b>あなた自身の Google ドライブ</b>の「このアプリ専用の見えない領域」に 1 つのファイルとして保存されます。ドライブの一覧には出ません。</li>
+          <li>このアプリが使える権限はその領域だけです。ドライブにあるほかのファイルを見たり変えたりはできません。</li>
+          <li>開発者を含め、ほかの人があなたのデータを見ることはできません。</li>
+          <li>Google のログイン情報（約 1 時間で切れる合鍵）は、この端末にだけ保存されます。</li>
+        </ul>
+      </section>
+      <section>
+        <h3>アプリ本体について</h3>
+        <ul>
+          <li>アプリのプログラムは GitHub Pages から配信しています。広告や、利用状況を集める仕組み（アクセス解析など）は入れていません。</li>
+          <li>同期ボタンを使えるようにするため、開いたときに Google のログイン部品を Google から読み込みます。ログインして同期を設定しない限り、データは送られません。</li>
+          <li>配信元の GitHub や Google には、一般的なウェブサイトと同じく、アクセスの記録が残る場合があります。</li>
+        </ul>
+      </section>
+      <section>
+        <h3>書き出したファイル・請求書の扱い</h3>
+        <ul>
+          <li>「書き出し」の JSON ファイルや、保存した請求書（PDF・CSV）には、住所・電話番号・振込先が含まれます。人に送る・共有する場所に置くときは気をつけてください。</li>
+        </ul>
+      </section>
+      <section>
+        <h3>データを消すには</h3>
+        <ul>
+          <li><b>この端末から</b>：ブラウザの設定で、このサイトの「Cookie とサイトデータ」を削除します（シークレットウィンドウではもともと保存されません）。消す前に「書き出し」で控えを取っておくと安心です。</li>
+          <li><b>同期をやめる</b>：「⋯」→「この端末の同期をやめる」。この端末のデータと Google ドライブのデータはどちらも残ります。</li>
+          <li><b>Google ドライブから</b>：パソコンで Google ドライブを開き、右上の設定 →「アプリを管理」→「案件管理」の「オプション」→「非表示のアプリデータを削除」。</li>
+        </ul>
+      </section>
+    </div>
+  </dialog>
 
   <button class="fab" id="fab-add" aria-label="案件を追加">＋</button>
 
