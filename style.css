@@ -154,7 +154,17 @@ main { padding: 20px; max-width: 1280px; margin: 0 auto; }
 .money { text-align: right; display: flex; flex-direction: column; }
 .money small { color: var(--muted); font-size: 12px; }
 .money b { font-size: 16px; }
-.actions { display: flex; flex-direction: column; gap: 6px; }
+.actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+
+/* 進み具合（初稿・修正・完了） */
+.stage-btns { display: flex; gap: 6px; }
+.stage-btn { font-weight: 700; padding: 8px 12px; color: var(--muted); border-style: dashed; white-space: nowrap; }
+.stage-btn.draft.on { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
+.stage-btn.revision.on { background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn); }
+.stage-tag { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.stage-tag.draft { background: var(--accent-soft); color: var(--accent); }
+.stage-tag.revision { background: var(--warn-soft); color: var(--warn); }
+.agenda-main .stage-tag { align-self: flex-start; }
 
 .btn-done { background: var(--done); border-color: var(--done); color: #fff; font-weight: 700; padding: 8px 16px; }
 .btn-done:hover { filter: brightness(1.1); border-color: var(--done); }
@@ -388,7 +398,9 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
   .project-row { grid-template-columns: 1fr auto; }
   .project-row .due { grid-column: 1 / -1; flex-direction: row; gap: 8px; align-items: baseline; }
   .project-row .actions { grid-column: 1 / -1; flex-direction: row; }
-  .project-row .actions .btn-done { flex: 1; padding: 10px; }
+  .project-row .actions .stage-btns { flex: 1; }
+  .project-row .actions .stage-btn { flex: 1; padding: 10px 4px; }
+  .project-row .actions .btn-done { flex: 1.4; padding: 10px; }
   .project-row .actions .small { padding: 8px 14px; font-size: 13px; }
 
   .view-head { margin-bottom: 10px; }

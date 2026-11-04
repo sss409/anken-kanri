@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.4.2';
+const APP_VERSION = '0.5.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -283,8 +283,15 @@ function projectRow(p, { mode }) {
   const left = mode === 'active'
     ? `<div class="due ${badge.cls}">${shortDate(p.dueDate)}<small>${badge.text}</small></div>`
     : `<div class="due done">${shortDate(p.completedAt)}<small>完了</small></div>`;
+  const stageBtn = (stage, label, tip) =>
+    `<button class="stage-btn ${stage} ${p.stage === stage ? 'on' : ''}" data-stage="${stage}" data-id="${p.id}"
+      title="${p.stage === stage ? 'もう一度押すと一つ前に戻す' : tip}">${label}</button>`;
   const actions = mode === 'active'
-    ? `<button class="btn-done" data-done="${p.id}" title="完了済みに移す">完了</button>`
+    ? `<div class="stage-btns">
+        ${stageBtn('draft', '初稿', '初稿を出した')}
+        ${stageBtn('revision', '修正', '修正の依頼が来た')}
+        <button class="btn-done" data-done="${p.id}" title="完了済みに移す">完了</button>
+      </div>`
     : `<button class="ghost small" data-undone="${p.id}" title="進行中に戻す">戻す</button>`;
   return `
     <div class="project-row ${state.editingId === p.id ? 'is-editing' : ''}" style="${clientStyle(p.client)}">
@@ -293,6 +300,7 @@ function projectRow(p, { mode }) {
         <div class="tags">
           <span class="client-chip">${esc(p.client)}</span>
           <span class="kind-tag ${p.kind}">${KIND_LABEL[p.kind]}</span>
+          ${mode === 'active' ? stageTag(p) : ''}
         </div>
         <div class="title">${esc(p.title) || '<span class="muted">（案件名なし）</span>'}</div>
         <div class="sub">${shortDate(p.startDate)} 〜 ${shortDate(p.dueDate)} ・ 請求 ${monthLabel(p.billingMonth)}${p.memo ? ` ・ ${esc(p.memo)}` : ''}</div>
@@ -313,9 +321,14 @@ function renderActiveList() {
     .filter((p) => p.status === 'active')
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.startDate.localeCompare(b.startDate));
   const overdue = active.filter((p) => p.dueDate < todayStr()).length;
-  $('active-summary').textContent = active.length
-    ? `${active.length}件${overdue ? `（納期切れ ${overdue}件）` : ''}`
-    : '';
+  const byStage = (s) => active.filter((p) => (p.stage ?? null) === s).length;
+  const parts = [
+    `作業中 ${byStage(null)}`,
+    byStage('draft') ? `初稿提出 ${byStage('draft')}` : '',
+    byStage('revision') ? `修正中 ${byStage('revision')}` : '',
+    overdue ? `納期切れ ${overdue}` : '',
+  ].filter(Boolean);
+  $('active-summary').textContent = active.length ? `${active.length}件（${parts.join('・')}）` : '';
   $('active-list').innerHTML = active.length
     ? active.map((p) => projectRow(p, { mode: 'active' })).join('')
     : `<p class="empty">進行中の案件はありません。${isNarrow() ? '右下の「＋」' : '左のフォーム'}から追加してください。</p>`;
@@ -347,6 +360,24 @@ async function markDone(id) {
   await upsert({ ...p, status: 'done', completedAt: todayStr() });
   if (state.editingId === id) resetForm();
   showToast(`「${p.title || p.client}」を完了済みに移しました`, () => upsert({ ...byId(id), ...before }));
+}
+
+// ---------- 進み具合（初稿・修正） ----------
+
+const STAGE_LABEL = { draft: '初稿提出', revision: '修正中' };
+
+function stageTag(p) {
+  if (!p.stage) return '';
+  const at = p[`${p.stage}At`];
+  return `<span class="stage-tag ${p.stage}">${STAGE_LABEL[p.stage]}${at ? ` ${shortDate(at)}` : ''}</span>`;
+}
+
+// 押した日を記録して進み具合を変える。同じボタンをもう一度押したら一つ前に戻す（修正中→初稿提出→作業中）
+async function toggleStage(id, stage) {
+  const p = byId(id);
+  if (!p) return;
+  if (p.stage === stage) await upsert({ ...p, stage: stage === 'revision' && p.draftAt ? 'draft' : null });
+  else await upsert({ ...p, stage, [`${stage}At`]: todayStr() });
 }
 
 async function markUndone(id) {
@@ -685,7 +716,7 @@ function renderCalendar() {
       return `<button class="agenda-item ${p.status === 'done' ? 'done' : ''} ${overdue ? 'overdue' : ''}" data-edit="${p.id}" style="${clientStyle(p.client)}">
         <span class="agenda-due">${shortDate(p.dueDate)}<small>納期</small></span>
         <span class="kind-mark ${p.kind}">${p.kind === 'short' ? 'S' : 'L'}</span>
-        <span class="agenda-main"><span class="client-chip">${esc(p.client)}</span> ${esc(p.title)}<small>${shortDate(p.startDate)} 着手</small></span>
+        <span class="agenda-main"><span class="client-chip">${esc(p.client)}</span> ${esc(p.title)}<small>${shortDate(p.startDate)} 着手</small>${p.status === 'active' ? stageTag(p) : ''}</span>
       </button>`;
     }).join('')
     : '';
@@ -739,9 +770,10 @@ function bindGlobal() {
     if (b) setTab(b.dataset.tab);
   });
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter]');
+    const t = e.target.closest('[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter]');
     if (!t) return;
-    if (t.dataset.inv) toggleInvoice(t.dataset.month, t.dataset.client, t.dataset.inv);
+    if (t.dataset.stage) toggleStage(t.dataset.id, t.dataset.stage);
+    else if (t.dataset.inv) toggleInvoice(t.dataset.month, t.dataset.client, t.dataset.inv);
     else if (t.dataset.billMonth) { state.billMonth = t.dataset.billMonth; renderBilling(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     else if (t.dataset.clientFilter != null) { state.clientFilter = t.dataset.clientFilter; renderClients(); }
     else if (t.dataset.done) markDone(t.dataset.done);
