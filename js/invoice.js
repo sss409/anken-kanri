@@ -66,6 +66,7 @@ function invoiceData() {
   const items = invoiceItems();
   return {
     to: $('iv-to').value.trim(),
+    honorific: currentHonorific(),
     myName: $('iv-myname').value.trim(),
     address: addressLines(readGroup('iv-addr', 'addr')),
     tel: $('iv-tel').value.trim(),
@@ -80,6 +81,14 @@ function invoiceData() {
 
 // 見ている中身（控えならそのまま、作っている途中なら入力欄から）
 const currentData = () => inv.snapshot?.data ?? invoiceData();
+
+// 宛名の敬称：個人あては「様」、会社・団体あては「御中」（クライアントごとに覚える。0.8.1 までの控えは「様」）
+const honorificOf = (d) => d.honorific ?? '様';
+const currentHonorific = () => $('iv-honorific').querySelector('.active')?.dataset.honorific ?? '様';
+
+function setHonorific(h) {
+  for (const b of $('iv-honorific').querySelectorAll('button')) b.classList.toggle('active', b.dataset.honorific === h);
+}
 
 // ---------- 項目に分けた入力（住所・お振込先） ----------
 
@@ -109,13 +118,13 @@ function bankLines(b) {
 }
 
 // これまでの請求書のファイル名にそろえる
-// クライアント別：5月分請求書_自分の名前_〇〇様　／　案件別：請求書_案件名_自分の名前_〇〇様
+// クライアント別：5月分請求書_自分の名前_〇〇様　／　案件別：請求書_案件名_自分の名前_〇〇様（会社あては〇〇御中）
 function invoiceFileName(d) {
   if (inv.snapshot) return inv.snapshot.fileName;
   const head = inv.mode === 'project'
     ? `請求書_${projectLabel(byId(inv.projectId))}`
     : `${Number(inv.month.slice(5))}月分請求書`;
-  return `${head}_${d.myName || '自分の名前'}_${d.to}様`.replace(/[\\/:*?"<>|]/g, '_');
+  return `${head}_${d.myName || '自分の名前'}_${d.to}${honorificOf(d)}`.replace(/[\\/:*?"<>|]/g, '_');
 }
 
 // ---------- 控え（発行した請求書） ----------
@@ -187,6 +196,7 @@ function showEditor(target, issue, due, title) {
   Object.assign(inv, target, { snapshot: null });
   const s = state.settings ?? {};
   $('iv-to').value = s.addressees?.[inv.client] ?? inv.client;
+  setHonorific(s.honorifics?.[inv.client] ?? '様');
   $('iv-myname').value = s.myName ?? '';
   // 0.7.0 の 1 つの欄で入れた住所は「市区町村・番地」に入れておく
   writeGroup('iv-addr', 'addr', s.myAddressInfo ?? (s.myAddress ? { city: s.myAddress.replace(/\s*\n\s*/g, ' ') } : {}));
@@ -241,7 +251,7 @@ function renderInvoicePaper() {
     <h1 class="ip-title">請求書</h1>
     <div class="ip-issue">発効日: ${jpDate(d.issue)}</div>
     <div class="ip-parties">
-      <div class="ip-to">${esc(d.to)}<span>様</span></div>
+      <div class="ip-to">${esc(d.to)}<span>${honorificOf(d)}</span></div>
       <div class="ip-from">
         <div class="ip-from-name">${esc(d.myName)}</div>
         ${d.address.map((l) => `<div>${esc(l)}</div>`).join('')}
@@ -322,7 +332,7 @@ function invoiceCsv(d) {
   const out = [
     row(), row({ 1: '請求書' }), row(), row({ 4: '発効日:', 5: jpDate(d.issue) }),
     row({ 4: d.myName }),
-    row({ 1: `${d.to} 様`, 4: d.address.join(' ') }),
+    row({ 1: `${d.to} ${honorificOf(d)}`, 4: d.address.join(' ') }),
     row({ 4: d.tel ? `TEL：${d.tel}` : '' }),
     row({ 1: '今回御請求額' }), row({ 1: yen(d.total) }), row(), row(),
     row({ 1: 'No.', 2: '品名・作業内容', 3: '数量', 4: '単価', 5: '金額' }),
@@ -365,6 +375,13 @@ function bindInvoice() {
     else openInvoice(inv.month, inv.client, { remake: true });
   });
   $('iv-form').addEventListener('submit', (e) => e.preventDefault());
+  $('iv-honorific').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-honorific]');
+    if (!b) return;
+    setHonorific(b.dataset.honorific);
+    updateSettings({ honorifics: { ...(state.settings?.honorifics ?? {}), [inv.client]: b.dataset.honorific } });
+    renderInvoicePaper();
+  });
   $('iv-form').addEventListener('input', (e) => {
     const id = e.target.id;
     if (id === 'iv-to') {

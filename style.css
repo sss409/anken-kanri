@@ -483,6 +483,11 @@ body.invoice-open .fab { display: none; }
 .iv-form { padding: 16px; display: flex; flex-direction: column; gap: 12px; position: sticky; top: 76px; }
 .iv-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
 .iv-form label small { font-weight: normal; }
+.iv-to-row { display: flex; gap: 8px; align-items: stretch; }
+.iv-to-row input { flex: 1; min-width: 0; }
+.honorific-seg { flex: 0 0 auto; grid-template-columns: auto auto; }
+.honorific-seg button { padding: 6px 12px; }
+.honorific-seg button.active { background: var(--accent-soft); color: var(--accent); }
 .iv-form input, .iv-form textarea {
   border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; width: 100%;
   background: var(--surface-2); font-size: 14px; color: var(--text); font-weight: normal; resize: vertical;

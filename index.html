@@ -186,9 +186,16 @@
     </div>
     <div class="iv-body">
       <form class="card iv-form no-print" id="iv-form" autocomplete="off">
-        <label>宛名 <small>（「様」は自動で付きます）</small>
-          <input id="iv-to">
-        </label>
+        <div class="field">
+          <label for="iv-to">宛名 <small>（個人あては「様」、会社・団体あては「御中」）</small></label>
+          <div class="iv-to-row">
+            <input id="iv-to">
+            <div class="segmented honorific-seg" id="iv-honorific">
+              <button type="button" data-honorific="様">様</button>
+              <button type="button" data-honorific="御中">御中</button>
+            </div>
+          </div>
+        </div>
         <label>自分の名前
           <input id="iv-myname" placeholder="例：屋号や活動名">
         </label>
@@ -249,7 +256,7 @@
         <label>備考
           <textarea id="iv-note" rows="2"></textarea>
         </label>
-        <p class="iv-hint">宛名・自分の名前・住所・電話番号・お振込先・備考は次からも自動で入ります（同期もされます）。<br>
+        <p class="iv-hint">宛名と様／御中（クライアントごと）・自分の名前・住所・電話番号・お振込先・備考は次からも自動で入ります（同期もされます）。<br>
           「PDFで保存」を押したら、印刷画面の送信先を「PDFに保存」にしてください。保存すると、<span id="iv-issue-hint"></span>「請求書 発行済」になります。</p>
       </form>
       <!-- 発行した請求書（控え）を見ているときだけ、入力欄の代わりに出す -->
