@@ -48,6 +48,8 @@ const yen = (n) => '¥' + Math.round(n).toLocaleString('ja-JP');
 const KIND_LABEL = { short: 'ショート', long: 'ロング' };
 
 const amountOf = (p) => p.unitPrice * p.count;
+// 編集者に払う委託費（委託単価 × 本数）。委託単価が無い案件は 0
+const feeOf = (p) => (Number(p.feeUnit) || 0) * p.count;
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({

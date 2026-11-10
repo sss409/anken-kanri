@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.8.2';
+const APP_VERSION = '0.9.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -12,6 +12,7 @@ const state = {
   settings: null,      // 請求書の設定 { myName, bank, note, addressees: { クライアント: 宛名 }, updatedAt }
   tab: 'list',
   clientFilter: '',    // クライアント別タブで絞り込むクライアント（空ならすべて）
+  editorFilter: null,  // 案件タブで絞り込む編集者（null＝すべて、''＝自分で編集する案件）
   editingId: null,
   calMonth: monthOf(todayStr()),
   billMonth: monthOf(todayStr()),
@@ -71,6 +72,31 @@ const byId = (id) => state.projects.find((p) => p.id === id);
 const clientNames = () => [...new Set(state.projects.map((p) => p.client))].sort((a, b) => a.localeCompare(b, 'ja'));
 const clientStyle = (name) => `--hue:${clientHue(name)}`;
 
+// ---------- ディレクター機能（担当編集者・委託費・純利益） ----------
+
+// 設定に入れて同期する（PC で入れたらスマホでも出る）
+const isDirector = () => !!state.settings?.director;
+const editorNames = () => [...new Set(state.projects.map((p) => p.editor).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
+const SELF_LABEL = '自分';
+const editorLabel = (name) => name || SELF_LABEL;
+
+function toggleDirector() {
+  updateSettings({ director: !isDirector() });
+  renderAll();
+  showToast(isDirector() ? 'ディレクター機能をオンにしました（案件に担当編集者と委託単価を入れられます）' : 'ディレクター機能をオフにしました', null);
+}
+
+function applyDirectorMode() {
+  const on = isDirector();
+  document.body.classList.toggle('director', on);
+  $('btn-director').classList.toggle('on', on);
+  $('btn-director').firstChild.textContent = `ディレクター機能：${on ? 'オン' : 'オフ'}`;
+}
+
+function editorTag(p) {
+  return isDirector() && p.editor ? `<span class="editor-tag" title="担当編集者">担当 ${esc(p.editor)}</span>` : '';
+}
+
 // ---------- タブ ----------
 
 function setTab(tab) {
@@ -82,6 +108,7 @@ function setTab(tab) {
 }
 
 function renderAll() {
+  applyDirectorMode();
   renderClientOptions();
   if (state.tab === 'list') renderActiveList();
   if (state.tab === 'clients') renderClients();
@@ -96,6 +123,7 @@ const form = {
   kind: 'short',
   priceTouched: false,   // 単価を手で変えたら自動入力しない
   billingTouched: false, // 請求月を手で変えたら納期に追従しない
+  feeTouched: false,     // 委託単価を手で変えたら自動入力しない
 };
 
 function setKind(kind) {
@@ -118,14 +146,37 @@ function autoFillPrice() {
   updateAmount();
 }
 
+// 同じ編集者・種別で最後に登録した委託単価
+function lastFee(editor, kind) {
+  if (!editor) return undefined;
+  const hits = state.projects
+    .filter((p) => p.editor === editor && p.kind === kind && p.feeUnit != null)
+    .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+  return hits[0]?.feeUnit;
+}
+
+function autoFillFee() {
+  if (form.feeTouched && $('f-fee').value !== '') return;
+  const fee = lastFee($('f-editor').value.trim(), form.kind);
+  $('f-fee').value = fee ?? '';
+  updateAmount();
+}
+
 function updateAmount() {
   const price = Number($('f-price').value) || 0;
   const count = Number($('f-count').value) || 0;
+  const fee = (Number($('f-fee').value) || 0) * count;
   $('f-amount').textContent = yen(price * count);
+  $('f-fee-amount').textContent = yen(fee);
+  $('f-profit').textContent = yen(price * count - fee);
+  $('f-profit').classList.toggle('minus', price * count - fee < 0);
 }
 
 function resetForm({ keepClient = false } = {}) {
-  const keep = keepClient ? { client: $('f-client').value, kind: form.kind, price: $('f-price').value } : null;
+  // 続けて追加するときは、クライアント・種別・単価・担当編集者・委託単価をそのまま残す
+  const keep = keepClient ? {
+    client: $('f-client').value, kind: form.kind, price: $('f-price').value, editor: $('f-editor').value, fee: $('f-fee').value,
+  } : null;
   state.editingId = null;
   $('project-form').reset();
   $('form-title').textContent = '案件を追加';
@@ -136,6 +187,7 @@ function resetForm({ keepClient = false } = {}) {
   $('project-form').classList.remove('editing');
   form.priceTouched = false;
   form.billingTouched = false;
+  form.feeTouched = false;
   $('f-count').value = 1;
   $('f-start').value = todayStr();
   $('f-billing').value = monthOf(todayStr());
@@ -143,6 +195,8 @@ function resetForm({ keepClient = false } = {}) {
     $('f-client').value = keep.client;
     setKind(keep.kind);
     $('f-price').value = keep.price;
+    $('f-editor').value = keep.editor;
+    $('f-fee').value = keep.fee;
   } else {
     setKind('short');
   }
@@ -169,7 +223,10 @@ function startEdit(id) {
   $('f-due').value = p.dueDate;
   $('f-billing').value = p.billingMonth;
   $('f-memo').value = p.memo ?? '';
+  $('f-editor').value = p.editor ?? '';
+  $('f-fee').value = p.feeUnit ?? '';
   form.priceTouched = true;
+  form.feeTouched = true;
   form.billingTouched = p.billingMonth !== monthOf(p.dueDate);
   updateAmount();
   renderActiveList();
@@ -210,6 +267,12 @@ function readForm() {
   if (!v.startDate || !v.dueDate) return { error: '着手日と納期を入れてください' };
   if (v.dueDate < v.startDate) return { error: '納期が着手日より前になっています' };
   if (!v.billingMonth) return { error: '請求月を入れてください' };
+  // ディレクター機能がオフの間は、担当編集者・委託単価に触らない（入っている値はそのまま残す）
+  if (isDirector()) {
+    v.editor = $('f-editor').value.trim();
+    v.feeUnit = $('f-fee').value === '' ? null : Number($('f-fee').value);
+    if (v.feeUnit != null && !(v.feeUnit >= 0)) return { error: '委託単価は0以上で入れてください' };
+  }
   return { value: v };
 }
 
@@ -245,8 +308,10 @@ function bindForm() {
     const b = e.target.closest('button[data-kind]');
     if (!b) return;
     setKind(b.dataset.kind);
-    if (!state.editingId) { form.priceTouched = false; autoFillPrice(); }
+    if (!state.editingId) { form.priceTouched = false; autoFillPrice(); form.feeTouched = false; autoFillFee(); }
   });
+  $('f-editor').addEventListener('change', () => { if (!state.editingId || $('f-fee').value === '') { form.feeTouched = false; autoFillFee(); } });
+  $('f-fee').addEventListener('input', () => { form.feeTouched = true; updateAmount(); });
   $('f-client').addEventListener('change', () => { if (!state.editingId) autoFillPrice(); });
   $('f-price').addEventListener('input', () => { form.priceTouched = true; updateAmount(); });
   $('f-count').addEventListener('input', updateAmount);
@@ -271,6 +336,7 @@ function bindForm() {
 
 function renderClientOptions() {
   $('client-options').innerHTML = clientNames().map((n) => `<option value="${esc(n)}">`).join('');
+  $('editor-options').innerHTML = editorNames().map((n) => `<option value="${esc(n)}">`).join('');
 }
 
 // ---------- 進行中の一覧 ----------
@@ -306,6 +372,7 @@ function projectRow(p, { mode }) {
           <span class="client-chip">${esc(p.client)}</span>
           <span class="kind-tag ${p.kind}">${KIND_LABEL[p.kind]}</span>
           ${mode === 'active' ? stageTag(p) : ''}
+          ${editorTag(p)}
           ${p.invoicedAt ? `<span class="issued-tag" title="案件別の請求書を発行済み">請求書発行 ${shortDate(p.invoicedAt)}</span>` : ''}
         </div>
         <div class="title">${esc(p.title) || '<span class="muted">（案件名なし）</span>'}</div>
@@ -314,6 +381,9 @@ function projectRow(p, { mode }) {
       <div class="money">
         <small>${yen(p.unitPrice)} × ${p.count}本</small>
         <b>${yen(amountOf(p))}</b>
+        ${isDirector() && (p.editor || p.feeUnit != null)
+    ? `<small class="fee-line" title="委託費（${yen(p.feeUnit ?? 0)} × ${p.count}本）と利益">委託 ${yen(feeOf(p))}・利益 <span class="${amountOf(p) - feeOf(p) < 0 ? 'minus' : ''}">${yen(amountOf(p) - feeOf(p))}</span></small>`
+    : ''}
       </div>
       <div class="actions">
         ${actions}
@@ -327,9 +397,27 @@ function projectRow(p, { mode }) {
     </div>`;
 }
 
+// 進行中の案件を担当している編集者ごとに絞り込むボタン（ディレクター機能がオンで、担当編集者が入っている案件があるときだけ）
+function renderEditorFilter(active) {
+  const names = [...new Set(active.map((p) => p.editor).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
+  const hasSelf = active.some((p) => !p.editor);
+  if (!isDirector() || !names.length) {
+    state.editorFilter = null;
+    $('editor-filter').innerHTML = '';
+    return;
+  }
+  if (state.editorFilter != null && !(names.includes(state.editorFilter) || (state.editorFilter === '' && hasSelf))) state.editorFilter = null;
+  const count = (v) => active.filter((p) => v == null || (p.editor ?? '') === v).length;
+  const chips = [[null, 'すべて'], ...names.map((n) => [n, n]), ...(hasSelf ? [['', SELF_LABEL]] : [])];
+  $('editor-filter').innerHTML = '<span class="filter-label">担当</span>' + chips.map(([v, label]) =>
+    `<button class="filter-chip ${state.editorFilter === v ? 'active' : ''}" data-editor-filter="${v == null ? '*' : esc(v)}">${esc(label)} <small>${count(v)}</small></button>`).join('');
+}
+
 function renderActiveList() {
-  const active = state.projects
-    .filter((p) => p.status === 'active')
+  const allActive = state.projects.filter((p) => p.status === 'active');
+  renderEditorFilter(allActive);
+  const active = allActive
+    .filter((p) => state.editorFilter == null || (p.editor ?? '') === state.editorFilter)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.startDate.localeCompare(b.startDate));
   const overdue = active.filter((p) => p.dueDate < todayStr()).length;
   const byStage = (s) => active.filter((p) => (p.stage ?? null) === s).length;
@@ -342,6 +430,7 @@ function renderActiveList() {
   $('active-summary').textContent = active.length ? `${active.length}件（${parts.join('・')}）` : '';
   $('active-list').innerHTML = active.length
     ? active.map((p) => projectRow(p, { mode: 'active' })).join('')
+    : allActive.length ? `<p class="empty">${esc(editorLabel(state.editorFilter))}が担当している進行中の案件はありません。</p>`
     : `<p class="empty">進行中の案件はありません。${isNarrow() ? '右下の「＋」' : '左のフォーム'}から追加してください。</p>`;
 }
 
@@ -437,6 +526,8 @@ function renderClients() {
             <span>着手中 <b>${started.length}</b></span>
             ${upcoming.length ? `<span>着手前 <b>${upcoming.length}</b></span>` : ''}
             <span>完了 <b>${done.length}</b></span>
+            ${isDirector() && started.concat(upcoming).some((p) => p.editor)
+    ? `<span>担当 <b>${[...new Set(started.concat(upcoming).map((p) => editorLabel(p.editor ?? '')))].map(esc).join('・')}</b></span>` : ''}
             ${unbilled ? `<span class="bill-state none">未請求 ${yen(unbilled)}</span>` : ''}
             ${waiting ? `<span class="bill-state wait">入金待ち ${yen(waiting)}</span>` : ''}
           </div>
@@ -558,6 +649,7 @@ function billingRows(ym) {
         short: { count: 0, amount: 0 },
         long: { count: 0, amount: 0 },
         total: 0,
+        fee: 0,
         pending: 0,
         items: [],
       });
@@ -566,10 +658,71 @@ function billingRows(ym) {
     r[p.kind].count += p.count;
     r[p.kind].amount += amountOf(p);
     r.total += amountOf(p);
+    r.fee += feeOf(p);
     if (p.status !== 'done') r.pending += 1;
     r.items.push(p);
   }
   return [...rows.values()].sort((a, b) => b.total - a.total);
+}
+
+// 請求月の案件を担当編集者ごとにまとめる（委託費の多い順、自分で編集した分は最後）
+function editorRows(ym) {
+  const rows = new Map();
+  for (const p of state.projects) {
+    if (p.billingMonth !== ym) continue;
+    const name = p.editor ?? '';
+    if (!rows.has(name)) rows.set(name, { editor: name, count: 0, projects: 0, sales: 0, fee: 0, noFee: 0, clients: new Set() });
+    const r = rows.get(name);
+    r.count += p.count;
+    r.projects += 1;
+    r.sales += amountOf(p);
+    r.fee += feeOf(p);
+    if (name && p.feeUnit == null) r.noFee += 1;
+    r.clients.add(p.client);
+  }
+  return [...rows.values()].sort((a, b) => (a.editor === '') - (b.editor === '') || b.fee - a.fee || a.editor.localeCompare(b.editor, 'ja'));
+}
+
+const profitCell = (n) => `<span class="${n < 0 ? 'minus' : ''}">${yen(n)}</span>`;
+const rateOf = (profit, sales) => (sales ? `${Math.round((profit / sales) * 100)}%` : '—');
+
+function editorTableHtml(ym) {
+  const rows = editorRows(ym);
+  if (!rows.some((r) => r.editor)) {
+    return `<h3 class="section-title">編集者別（委託費・純利益）</h3>
+      <p class="empty">${monthLabel(ym)}の案件に担当編集者が入っていません。案件の「編集」で担当編集者と委託単価を入れると、ここに編集者ごとの委託費と純利益が出ます。</p>`;
+  }
+  const sum = rows.reduce((s, r) => ({ count: s.count + r.count, sales: s.sales + r.sales, fee: s.fee + r.fee }), { count: 0, sales: 0, fee: 0 });
+  return `
+    <h3 class="section-title">編集者別（委託費・純利益）</h3>
+    <div class="card table-card">
+      <table class="bill-table editor-table">
+        <thead><tr><th>編集者</th><th>本数</th><th>売上</th><th>委託費</th><th>純利益</th><th>利益率</th></tr></thead>
+        <tbody>
+          ${rows.map((r) => `
+            <tr>
+              <td class="name-col">
+                <span class="editor-name ${r.editor ? '' : 'self'}">${esc(editorLabel(r.editor))}</span>
+                <span class="muted small-note">${[...r.clients].map(esc).join('・')}</span>
+                ${r.noFee ? `<span class="pending" title="委託単価が入っていない案件は委託費 0 円で計算しています">委託単価なし ${r.noFee}件</span>` : ''}
+              </td>
+              <td class="num" data-label="本数"><span class="cnt">${r.projects}件</span>${r.count}本</td>
+              <td class="num" data-label="売上">${yen(r.sales)}</td>
+              <td class="num" data-label="委託費">${r.editor ? yen(r.fee) : '<span class="muted">—</span>'}</td>
+              <td class="num total" data-label="純利益">${profitCell(r.sales - r.fee)}</td>
+              <td class="num" data-label="利益率">${rateOf(r.sales - r.fee, r.sales)}</td>
+            </tr>`).join('')}
+        </tbody>
+        <tfoot><tr>
+          <td class="name-col">合計</td>
+          <td class="num" data-label="本数">${sum.count}本</td>
+          <td class="num" data-label="売上">${yen(sum.sales)}</td>
+          <td class="num" data-label="委託費">${yen(sum.fee)}</td>
+          <td class="num total" data-label="純利益">${profitCell(sum.sales - sum.fee)}</td>
+          <td class="num" data-label="利益率">${rateOf(sum.sales - sum.fee, sum.sales)}</td>
+        </tr></tfoot>
+      </table>
+    </div>`;
 }
 
 function cell(x) {
@@ -587,12 +740,20 @@ function renderBilling() {
     short: { count: s.short.count + r.short.count, amount: s.short.amount + r.short.amount },
     long: { count: s.long.count + r.long.count, amount: s.long.amount + r.long.amount },
     total: s.total + r.total,
-  }), { short: { count: 0, amount: 0 }, long: { count: 0, amount: 0 }, total: 0 });
+    fee: s.fee + r.fee,
+  }), { short: { count: 0, amount: 0 }, long: { count: 0, amount: 0 }, total: 0, fee: 0 });
+
+  // ディレクター機能がオンのときは、クライアントごとの委託費と純利益の列を足す
+  const dir = isDirector();
+  const dirCells = (r) => dir
+    ? `<td class="num" data-label="委託費">${r.fee ? yen(r.fee) : '<span class="muted">—</span>'}</td>
+       <td class="num profit" data-label="純利益">${profitCell(r.total - r.fee)}</td>`
+    : '';
 
   $('billing').innerHTML = `
     <div class="card table-card">
-      <table class="bill-table">
-        <thead><tr><th>クライアント</th><th>ショート</th><th>ロング</th><th>請求額</th><th class="status-col">請求書・振込</th></tr></thead>
+      <table class="bill-table ${dir ? 'with-profit' : ''}">
+        <thead><tr><th>クライアント</th><th>ショート</th><th>ロング</th><th>請求額</th>${dir ? '<th>委託費</th><th>純利益</th>' : ''}<th class="status-col">請求書・振込</th></tr></thead>
         <tbody>
           ${rows.map((r) => `
             <tr style="${clientStyle(r.client)}">
@@ -600,6 +761,7 @@ function renderBilling() {
               <td class="num" data-label="ショート">${cell(r.short)}</td>
               <td class="num" data-label="ロング">${cell(r.long)}</td>
               <td class="num total" data-label="請求額">${yen(r.total)}</td>
+              ${dirCells(r)}
               <td class="status-col"><div class="status-pair">${statusButtons(state.billMonth, r.client)}</div></td>
             </tr>`).join('')}
         </tbody>
@@ -608,10 +770,12 @@ function renderBilling() {
           <td class="num" data-label="ショート">${cell(sum.short)}</td>
           <td class="num" data-label="ロング">${cell(sum.long)}</td>
           <td class="num total" data-label="請求額">${yen(sum.total)}</td>
+          ${dirCells(sum)}
           <td class="status-col muted">${paidSummary(state.billMonth, rows)}</td>
         </tr></tfoot>
       </table>
     </div>
+    ${dir ? editorTableHtml(state.billMonth) : ''}
     <h3 class="section-title">内訳</h3>
     ${rows.map((r) => `
       <details class="card bill-detail" style="${clientStyle(r.client)}">
@@ -621,8 +785,10 @@ function renderBilling() {
             <li>
               <span class="kind-tag ${p.kind}">${KIND_LABEL[p.kind]}</span>
               <span class="grow">${esc(p.title) || '<span class="muted">（案件名なし）</span>'}</span>
+              ${editorTag(p)}
               <span class="muted">${p.status === 'done' ? '完了' : `納期 ${shortDate(p.dueDate)}`}</span>
               <span class="num">${yen(p.unitPrice)} × ${p.count} = <b>${yen(amountOf(p))}</b></span>
+              ${dir && feeOf(p) ? `<span class="num fee-line">委託 ${yen(feeOf(p))}</span>` : ''}
             </li>`).join('')}
         </ul>
       </details>`).join('')}
@@ -659,10 +825,16 @@ function openBillsHtml() {
 
 async function copyBilling() {
   const rows = billingRows(state.billMonth);
-  const lines = [['クライアント', 'ショート本数', 'ショート金額', 'ロング本数', 'ロング金額', '請求額', '請求書発行日', '入金確認日'].join('\t')];
+  const dir = isDirector();
+  const lines = [['クライアント', 'ショート本数', 'ショート金額', 'ロング本数', 'ロング金額', '請求額', ...(dir ? ['委託費', '純利益'] : []), '請求書発行日', '入金確認日'].join('\t')];
   for (const r of rows) {
     const inv = invoiceOf(state.billMonth, r.client);
-    lines.push([r.client, r.short.count, r.short.amount, r.long.count, r.long.amount, r.total, inv.invoicedAt ?? '', inv.paidAt ?? ''].join('\t'));
+    lines.push([r.client, r.short.count, r.short.amount, r.long.count, r.long.amount, r.total, ...(dir ? [r.fee, r.total - r.fee] : []), inv.invoicedAt ?? '', inv.paidAt ?? ''].join('\t'));
+  }
+  // ディレクター機能がオンのときは、下に編集者別の表も付ける
+  if (dir && editorRows(state.billMonth).some((r) => r.editor)) {
+    lines.push('', ['編集者', '本数', '売上', '委託費', '純利益'].join('\t'));
+    for (const r of editorRows(state.billMonth)) lines.push([editorLabel(r.editor), r.count, r.sales, r.fee, r.sales - r.fee].join('\t'));
   }
   try {
     await navigator.clipboard.writeText(lines.join('\n'));
@@ -720,7 +892,8 @@ function renderCalendar() {
     const bars = placed.map(({ p, lane, col, span, contL, contR }) => {
       const overdue = p.status === 'active' && p.dueDate < today;
       const cls = ['cal-bar', p.status === 'done' ? 'done' : '', overdue ? 'overdue' : '', contL ? 'cont-l' : '', contR ? 'cont-r' : ''].join(' ');
-      const tip = `${p.client} / ${p.title || '（案件名なし）'}\n${KIND_LABEL[p.kind]} ${yen(amountOf(p))}\n${shortDate(p.startDate)} 〜 ${shortDate(p.dueDate)}`;
+      const tip = `${p.client} / ${p.title || '（案件名なし）'}\n${KIND_LABEL[p.kind]} ${yen(amountOf(p))}\n${shortDate(p.startDate)} 〜 ${shortDate(p.dueDate)}`
+        + (isDirector() && p.editor ? `\n担当 ${p.editor}` : '');
       return `<button class="${cls}" data-edit="${p.id}" title="${esc(tip)}"
         style="grid-row:${lane + 2};grid-column:${col} / span ${span};${clientStyle(p.client)}">
         <span class="kind-mark ${p.kind}">${p.kind === 'short' ? 'S' : 'L'}</span>
@@ -744,7 +917,7 @@ function renderCalendar() {
       return `<button class="agenda-item ${p.status === 'done' ? 'done' : ''} ${overdue ? 'overdue' : ''}" data-edit="${p.id}" style="${clientStyle(p.client)}">
         <span class="agenda-due">${shortDate(p.dueDate)}<small>納期</small></span>
         <span class="kind-mark ${p.kind}">${p.kind === 'short' ? 'S' : 'L'}</span>
-        <span class="agenda-main"><span class="client-chip">${esc(p.client)}</span> ${esc(p.title)}<small>${shortDate(p.startDate)} 着手</small>${p.status === 'active' ? stageTag(p) : ''}</span>
+        <span class="agenda-main"><span class="client-chip">${esc(p.client)}</span> ${esc(p.title)}<small>${shortDate(p.startDate)} 着手</small>${p.status === 'active' ? stageTag(p) : ''}${editorTag(p)}</span>
       </button>`;
     }).join('')
     : '';
@@ -799,8 +972,13 @@ function bindGlobal() {
     if (b) setTab(b.dataset.tab);
   });
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-make-invoice],[data-project-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter]');
+    const t = e.target.closest('[data-make-invoice],[data-project-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter],[data-editor-filter]');
     if (!t) return;
+    if (t.dataset.editorFilter != null) {
+      state.editorFilter = t.dataset.editorFilter === '*' ? null : t.dataset.editorFilter;
+      renderActiveList();
+      return;
+    }
     if (t.dataset.makeInvoice) openInvoice(t.dataset.month, t.dataset.client);
     else if (t.dataset.projectInvoice) openProjectInvoice(t.dataset.projectInvoice);
     else if (t.dataset.stage) toggleStage(t.dataset.id, t.dataset.stage);
@@ -836,6 +1014,7 @@ function bindGlobal() {
   const closeMenu = () => { $('menu').hidden = true; };
   $('btn-menu').addEventListener('click', (e) => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
   document.addEventListener('click', (e) => { if (!e.target.closest('#menu')) closeMenu(); });
+  $('btn-director').addEventListener('click', () => { closeMenu(); toggleDirector(); });
   $('btn-export').addEventListener('click', () => { closeMenu(); exportData(); });
   $('btn-import').addEventListener('click', () => { closeMenu(); $('import-file').click(); });
   $('import-file').addEventListener('change', async (e) => {

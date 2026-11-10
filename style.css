@@ -179,6 +179,31 @@ main { padding: 20px; max-width: 1280px; margin: 0 auto; }
   background: hsl(var(--hue) 60% var(--chip-l)); color: hsl(var(--hue) 55% var(--chip-text-l));
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* ---------- ディレクター機能（担当編集者・委託費・純利益） ---------- */
+
+body:not(.director) .dir-only { display: none !important; }
+.dir-group { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 10px; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dir-group legend { font-size: 12px; color: var(--muted); font-weight: 600; padding: 0 4px; }
+.dir-preview { text-align: right; color: var(--muted); font-size: 12px; }
+.dir-preview b { color: var(--text); font-size: 14px; margin-left: 4px; }
+.minus { color: var(--danger) !important; }
+.editor-tag {
+  font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+}
+.money .fee-line { font-size: 11px; white-space: nowrap; }
+.bill-detail .fee-line { color: var(--muted); font-size: 12px; }
+.editor-filter { align-items: center; margin-bottom: 10px; }
+.filter-label { font-size: 12px; color: var(--muted); font-weight: 600; margin-right: 2px; }
+.filter-chip small { opacity: .7; margin-left: 2px; }
+.bill-table .profit { font-weight: 700; color: var(--done); }
+.editor-table .total { color: var(--done); }
+.editor-table tfoot .total { color: var(--done); }
+.editor-name { font-weight: 700; }
+.editor-name.self { color: var(--muted); }
+.small-note { font-size: 11px; margin-left: 8px; }
+#btn-director.on { color: var(--accent); }
+
 .kind-tag { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
 .kind-tag.short { background: var(--short-soft); color: var(--short); }
 .kind-tag.long { background: var(--long-soft); color: var(--long); }

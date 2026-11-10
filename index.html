@@ -45,6 +45,7 @@
               <button data-theme-pref="dark">ダーク</button>
             </div>
           </div>
+          <button id="btn-director">ディレクター機能<small id="btn-director-sub">担当編集者・委託費・純利益を表示</small></button>
           <button id="btn-export">書き出し<small>全データをJSONファイルに保存</small></button>
           <button id="btn-import">読み込み<small>JSONファイルの内容で置き換え</small></button>
           <button id="btn-data-info">データの扱いについて<small>保存場所・同期・消し方</small></button>
@@ -91,6 +92,21 @@
         </div>
         <div class="amount-preview">金額 <b id="f-amount">¥0</b></div>
 
+        <!-- ディレクター機能（「⋯」メニューで切り替え）：担当してもらう編集者と委託費 -->
+        <fieldset class="dir-group dir-only">
+          <legend>担当編集者</legend>
+          <div class="row2">
+            <label>編集者
+              <input id="f-editor" list="editor-options" placeholder="空欄＝自分" title="空欄のときは自分で編集する案件として扱います">
+              <datalist id="editor-options"></datalist>
+            </label>
+            <label>委託単価（円）
+              <input id="f-fee" type="number" min="0" step="100" inputmode="numeric" placeholder="1本あたり">
+            </label>
+          </div>
+          <div class="dir-preview">委託費 <b id="f-fee-amount">¥0</b>　利益 <b id="f-profit">¥0</b></div>
+        </fieldset>
+
         <div class="row2">
           <label>着手日
             <input id="f-start" type="date" required>
@@ -122,6 +138,7 @@
           <h2>進行中</h2>
           <span class="muted" id="active-summary"></span>
         </div>
+        <div class="client-filter editor-filter dir-only" id="editor-filter"></div>
         <div id="active-list"></div>
       </div>
     </section>
