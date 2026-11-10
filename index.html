@@ -30,6 +30,7 @@
       <button data-tab="calendar">カレンダー</button>
       <button data-tab="billing">請求</button>
       <button data-tab="done"><span class="label-long">完了済み</span><span class="label-short">完了</span></button>
+      <button data-tab="prices"><span class="label-long">単価設定</span><span class="label-short">単価</span></button>
     </nav>
     <div class="header-tools">
       <button class="sync-btn" id="btn-sync" hidden></button>
@@ -77,6 +78,8 @@
               <input id="f-client" list="client-options" placeholder="例：〇〇チャンネル" required>
               <datalist id="client-options"></datalist>
             </label>
+            <!-- 登録してあるクライアント（単価タブ）と、案件のあるクライアントをボタンで選べる -->
+            <div class="pick-chips" id="f-client-chips"></div>
             <label>案件名
               <input id="f-title" placeholder="例：#12 雑談ショート">
             </label>
@@ -91,17 +94,38 @@
 
           <section class="card form-sec">
             <h3>金額</h3>
-            <div class="row2">
-              <label><span>単価（円） <small class="price-src" id="f-price-src"></small></span>
+            <!-- 単価の数え方（ロング＝横動画のときだけ選べる）：1本あたり／1分あたり（尺で払う案件） -->
+            <div class="field unit-field" id="f-unit-field" hidden>
+              <span class="field-label">単価の数え方</span>
+              <div class="segmented" id="f-unit">
+                <button type="button" data-unit="video">1本あたり</button>
+                <button type="button" data-unit="minute">1分あたり（尺）</button>
+              </div>
+            </div>
+            <div class="row2 price-row2" id="f-price-row">
+              <label><span><span id="f-price-label">単価（円）</span> <small class="price-src" id="f-price-src"></small></span>
                 <input id="f-price" type="number" min="0" step="100" inputmode="numeric" required>
+              </label>
+              <label class="minutes-field" hidden>1本の尺（分）
+                <input id="f-minutes" type="number" min="1" step="1" inputmode="numeric" placeholder="例：12" title="1分に満たない分は切り捨てます（12分30秒 → 12分）">
               </label>
               <label>本数
                 <input id="f-count" type="number" min="1" step="1" inputmode="numeric" required>
               </label>
             </div>
+
+            <!-- 追加料金（切り抜き選定料金など）。項目は設定画面で決めておくと、ボタンで足せる -->
+            <div class="extras">
+              <div class="extras-head">
+                <span class="field-label">追加料金</span>
+                <small class="muted">項目は「単価」タブで決められます</small>
+              </div>
+              <div id="f-extras"></div>
+              <div class="extra-presets" id="f-extra-presets"></div>
+            </div>
+
             <div class="amount-preview">
-              <button type="button" class="link" id="f-open-prices" title="クライアントごとの単価を決めておくと、クライアントを選んだときに自動で入ります">クライアントの単価を決める</button>
-              <span>金額 <b id="f-amount">¥0</b></span>
+              <span class="amount-total"><small id="f-amount-breakdown"></small>金額 <b id="f-amount">¥0</b></span>
             </div>
           </section>
 
@@ -113,10 +137,12 @@
                 <input id="f-editor" list="editor-options" placeholder="空欄＝自分" title="空欄のときは自分で編集する案件として扱います">
                 <datalist id="editor-options"></datalist>
               </label>
-              <label>委託単価（円）
+              <label><span id="f-fee-label">委託単価（円）</span>
                 <input id="f-fee" type="number" min="0" step="100" inputmode="numeric" placeholder="1本あたり">
               </label>
             </div>
+            <!-- 設定画面で登録した委託先の編集者をボタンで選べる -->
+            <div class="pick-chips" id="f-editor-chips"></div>
             <div class="dir-preview">委託費 <b id="f-fee-amount">¥0</b>　利益 <b id="f-profit">¥0</b></div>
           </section>
 
@@ -204,6 +230,50 @@
         <button class="ghost" id="btn-copy-billing">表をコピー</button>
       </div>
       <div id="billing"></div>
+
+      <!-- 請求書のファイル名の決まり（PDF・CSV で保存するときの名前）。入れたらその場で保存 -->
+      <section class="card name-rules" id="name-rules">
+        <h3>請求書のファイル名の決まり</h3>
+        <p class="set-help">下のボタンで要素を入れて、順番や区切りの文字は自由に書き換えられます。PDF・CSV で保存するときの名前になります。</p>
+        <div class="rule-block">
+          <label for="rule-month">クライアント別（月末まとめ）</label>
+          <input id="rule-month" class="rule-input" data-rule="month" autocomplete="off" spellcheck="false">
+          <div class="rule-preview">例：<span id="rule-month-preview"></span></div>
+        </div>
+        <div class="rule-block">
+          <label for="rule-project">案件別（単発）</label>
+          <input id="rule-project" class="rule-input" data-rule="project" autocomplete="off" spellcheck="false">
+          <div class="rule-preview">例：<span id="rule-project-preview"></span></div>
+        </div>
+        <div class="rule-tokens" id="rule-tokens" aria-label="要素を入れる（最後に選んだ欄の、文字を打っている位置に入ります）"></div>
+        <button type="button" class="ghost small" id="rule-reset">元の決まりに戻す</button>
+      </section>
+    </section>
+
+    <!-- 単価設定（クライアントごとの単価・追加料金の項目。入れたらその場で保存） -->
+    <section class="view" id="view-prices">
+      <div class="view-head"><h2>単価設定</h2></div>
+      <section class="price-sec">
+        <h3 class="section-title">クライアントの単価</h3>
+        <p class="page-help">決めておくと、案件を追加するときにクライアントを選ぶだけで単価が入ります。空欄の種別は前回の案件の単価が入ります（薄い文字が前回の単価）。ここで追加したクライアントは、案件の入力画面でボタンから選べます。</p>
+        <div class="card price-table" id="price-list"></div>
+        <form class="card price-add" id="price-add-form" autocomplete="off">
+          <input id="price-add-name" list="client-options" placeholder="新しいクライアント名">
+          <button type="submit" class="primary">＋ クライアントを追加</button>
+        </form>
+      </section>
+      <section class="price-sec">
+        <h3 class="section-title">追加料金の項目</h3>
+        <p class="page-help">切り抜き選定料金・サムネイル作成など、編集代とは別に請求するものの名前と単価を決めておくと、案件の入力画面からボタン 1 つで足せます（案件ごとに単価・回数は変えられます）。</p>
+        <div class="card extra-card">
+          <div class="extra-items" id="extra-items"></div>
+          <form class="extra-add" id="extra-add-form" autocomplete="off">
+            <input id="extra-add-name" placeholder="名前（例：切り抜き選定料金）">
+            <span class="yen-input"><input id="extra-add-price" type="number" min="0" step="100" inputmode="numeric" placeholder="単価"></span>
+            <button type="submit" class="primary">追加</button>
+          </form>
+        </div>
+      </section>
     </section>
 
     <!-- 完了済み -->
@@ -218,13 +288,13 @@
     <button id="toast-undo">元に戻す</button>
   </div>
 
-  <!-- 請求書（請求タブの「請求書を作成」から開く。印刷するときはこの用紙だけが出る） -->
+  <!-- 請求書（請求タブの「請求書を作成」から開く。PDF はこの用紙を画像にして作る） -->
   <section class="invoice-view" id="invoice-view" aria-label="請求書">
     <div class="iv-bar no-print">
       <button class="ghost" id="iv-close">← 戻る</button>
       <h2><span class="invoice-kind" id="invoice-kind"></span><span id="invoice-title"></span></h2>
       <div class="iv-actions">
-        <button class="primary" id="iv-pdf" title="印刷画面の送信先を「PDFに保存」にして保存">PDFで保存</button>
+        <button class="primary" id="iv-pdf" title="PDF ファイルにしてこの端末に保存（印刷画面は出ません）">PDFで保存</button>
         <button id="iv-csv" title="テンプレートと同じ並びの CSV を保存（スプレッドシートで開ける）">CSVで保存</button>
       </div>
     </div>
@@ -301,7 +371,7 @@
           <textarea id="iv-note" rows="2"></textarea>
         </label>
         <p class="iv-hint">宛名と様／御中（クライアントごと）・自分の名前・住所・電話番号・お振込先・備考は次からも自動で入ります（同期もされます）。<br>
-          「PDFで保存」を押したら、印刷画面の送信先を「PDFに保存」にしてください。保存すると、<span id="iv-issue-hint"></span>「請求書 発行済」になります。</p>
+          「PDFで保存」を押すと PDF ファイルがこの端末に保存されます（PC では保存する場所を選べます）。ファイル名は請求タブの「請求書のファイル名の決まり」で変えられます。保存すると、<span id="iv-issue-hint"></span>「請求書 発行済」になります。</p>
       </form>
       <!-- 発行した請求書（控え）を見ているときだけ、入力欄の代わりに出す -->
       <div class="card iv-viewinfo no-print" id="iv-viewinfo">
@@ -346,11 +416,15 @@
           <span class="switch-state" id="director-state">オフ</span>
           <span class="switch" aria-hidden="true"><span class="switch-knob"></span></span>
         </button>
-      </section>
-
-      <section class="card set-section">
-        <h3>案件の入力</h3>
-        <button class="set-row set-link" id="btn-open-prices"><span class="set-text">クライアントの単価<small id="set-prices-text">決めておくと、クライアントを選ぶだけで単価が入ります</small></span><span class="chev">›</span></button>
+        <!-- 委託先の編集者（オンのときだけ）。登録すると案件の入力画面でボタンから選べる -->
+        <div class="editor-reg dir-only">
+          <div class="set-text">委託先の編集者<small>登録しておくと、案件の入力画面の「担当編集者」でボタンから選べます</small></div>
+          <div class="editor-list" id="editor-list"></div>
+          <form class="editor-add" id="editor-add-form" autocomplete="off">
+            <input id="editor-add-name" placeholder="編集者の名前">
+            <button type="submit" class="primary">登録</button>
+          </form>
+        </div>
       </section>
 
       <section class="card set-section">
@@ -369,22 +443,6 @@
       </section>
 
       <p class="set-version muted">案件管理 <span id="set-version"></span></p>
-    </div>
-  </section>
-
-  <!-- クライアントの単価（設定画面・案件の入力画面・クライアント別から開く独立したページ。入れたらその場で保存） -->
-  <section class="page-view" id="prices-view" aria-label="クライアントの単価">
-    <div class="page-bar">
-      <button class="ghost" id="prices-close">← 戻る</button>
-      <h2>クライアントの単価</h2>
-    </div>
-    <div class="page-body wide">
-      <p class="page-help">決めておくと、案件を追加するときにクライアントを選ぶだけで単価が入ります。空欄の種別は前回の案件の単価が入ります（薄い文字が前回の単価）。入れた内容はすぐ保存され、同期もされます。</p>
-      <div class="card price-table" id="price-list"></div>
-      <form class="card price-add" id="price-add-form" autocomplete="off">
-        <input id="price-add-name" list="client-options" placeholder="新しいクライアント名">
-        <button type="submit" class="primary">＋ クライアントを追加</button>
-      </form>
     </div>
   </section>
 

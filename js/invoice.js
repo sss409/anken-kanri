@@ -50,15 +50,29 @@ function invoiceProjects() {
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 }
 
+// 1 案件 1 行。1分あたりの案件は「数量＝尺の合計（分）・単価＝1分あたり」、追加料金はその下に 1 項目 1 行
 function invoiceItems() {
-  return invoiceProjects()
-    .map((p, i) => ({
-      no: i + 1,
-      name: p.title ? `${p.title}（${KIND_LABEL[p.kind]}）` : projectLabel(p),
-      qty: p.count,
+  const items = [];
+  for (const p of invoiceProjects()) {
+    const kind = KIND_LABEL[p.kind];
+    const perMin = isPerMinute(p);
+    const what = perMin ? `${kind}・${minutesOf(p)}分${p.count > 1 ? `×${p.count}本` : ''}` : kind;
+    items.push({
+      name: p.title ? `${p.title}（${what}）` : perMin ? `${projectLabel(p)}（${minutesOf(p)}分${p.count > 1 ? `×${p.count}本` : ''}）` : projectLabel(p),
+      qty: unitsOf(p),
       price: p.unitPrice,
-      amount: amountOf(p),
-    }));
+      amount: baseAmountOf(p),
+    });
+    for (const x of extrasOf(p)) {
+      items.push({
+        name: p.title ? `${x.name}（${p.title}）` : x.name,
+        qty: x.qty,
+        price: x.price,
+        amount: (Number(x.price) || 0) * (Number(x.qty) || 0),
+      });
+    }
+  }
+  return items.map((it, i) => ({ no: i + 1, ...it }));
 }
 
 // 入力欄と案件から、請求書に載せる中身を作る（住所・振込先は行に分けた配列）
@@ -117,14 +131,126 @@ function bankLines(b) {
   return [line1, line2].filter(Boolean);
 }
 
-// これまでの請求書のファイル名にそろえる
+// ---------- ファイル名の決まり（請求タブで変えられる） ----------
+// {要素} を並べた文字列。元の決まりはこれまでの請求書の名前と同じ
 // クライアント別：5月分請求書_自分の名前_〇〇様　／　案件別：請求書_案件名_自分の名前_〇〇様（会社あては〇〇御中）
+const DEFAULT_NAME_RULES = {
+  month: '{請求月}月分請求書_{自分の名前}_{宛名}',
+  project: '請求書_{動画名}_{自分の名前}_{宛名}',
+};
+// 入れられる要素（ボタンの順）
+const NAME_TOKENS = [
+  ['クライアント', 'クライアント名'],
+  ['宛名', '宛名＋様／御中'],
+  ['自分の名前', '作業者名（請求書の自分の名前）'],
+  ['動画名', '案件名（月末まとめは並べる）'],
+  ['請求月', '請求月の月（例：11）'],
+  ['年', '請求月の年（例：2026）'],
+  ['発効日', '発効日（例：20261130）'],
+  ['種別', 'ショート・ロング'],
+  ['担当編集者', '担当編集者（ディレクター機能）'],
+];
+
+const nameRules = () => ({ ...DEFAULT_NAME_RULES, ...(state.settings?.fileNameRules ?? {}) });
+
+// 要素の中身を入れて、ファイル名に使えない文字を直す。空の要素で区切りが続いたら 1 つにまとめる
+function applyNameRule(rule, values) {
+  const name = rule.replace(/\{([^{}]+)\}/g, (m, k) => (k in values ? values[k] : m))
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/([_\-・ 　])\1+/g, '$1')
+    .replace(/^[_\-・ 　]+|[_\-・ 　]+$/g, '');
+  return name || '請求書';
+}
+
+// 動画名などは、月末まとめでは案件を並べる（多いときは「ほか〇件」）
+function joinNames(list) {
+  const u = [...new Set(list.filter(Boolean))];
+  return u.length > 3 ? `${u.slice(0, 2).join('・')}ほか${u.length - 2}件` : u.join('・');
+}
+
+function nameValues(d) {
+  const ps = invoiceProjects();
+  return {
+    クライアント: inv.client ?? '',
+    宛名: `${d.to}${honorificOf(d)}`,
+    自分の名前: d.myName || '自分の名前',
+    動画名: inv.mode === 'project' ? projectLabel(byId(inv.projectId)) : joinNames(ps.map((p) => p.title)),
+    請求月: String(Number(inv.month.slice(5))),
+    年: inv.month.slice(0, 4),
+    発効日: (d.issue ?? '').replaceAll('-', ''),
+    種別: joinNames(ps.map((p) => KIND_LABEL[p.kind])),
+    担当編集者: joinNames(ps.map((p) => p.editor)),
+  };
+}
+
 function invoiceFileName(d) {
   if (inv.snapshot) return inv.snapshot.fileName;
-  const head = inv.mode === 'project'
-    ? `請求書_${projectLabel(byId(inv.projectId))}`
-    : `${Number(inv.month.slice(5))}月分請求書`;
-  return `${head}_${d.myName || '自分の名前'}_${d.to}${honorificOf(d)}`.replace(/[\\/:*?"<>|]/g, '_');
+  return applyNameRule(nameRules()[inv.mode === 'project' ? 'project' : 'month'], nameValues(d));
+}
+
+// 請求タブの「請求書のファイル名の決まり」
+let lastRuleInput = 'rule-month';
+
+function renderNameRules() {
+  const rules = nameRules();
+  for (const key of ['month', 'project']) {
+    const input = $(`rule-${key}`);
+    if (document.activeElement !== input) input.value = rules[key];
+  }
+  $('rule-tokens').innerHTML = NAME_TOKENS
+    .filter(([k]) => k !== '担当編集者' || isDirector())
+    .map(([k, tip]) => `<button type="button" class="chip-btn" data-rule-token="${k}" title="${esc(tip)}">＋ ${k}</button>`).join('');
+  renderRulePreviews();
+}
+
+function renderRulePreviews() {
+  const m = state.billMonth;
+  const sample = {
+    クライアント: '〇〇チャンネル', 宛名: '〇〇チャンネル様', 自分の名前: state.settings?.myName || '自分の名前',
+    動画名: '#12 雑談ショート', 請求月: String(Number(m.slice(5))), 年: m.slice(0, 4),
+    発効日: monthEnd(m).replaceAll('-', ''), 種別: 'ショート', 担当編集者: '田中',
+  };
+  for (const key of ['month', 'project']) {
+    $(`rule-${key}-preview`).textContent = `${applyNameRule($(`rule-${key}`).value || DEFAULT_NAME_RULES[key], sample)}.pdf`;
+  }
+}
+
+function bindNameRules() {
+  for (const key of ['month', 'project']) {
+    const input = $(`rule-${key}`);
+    input.addEventListener('focus', () => { lastRuleInput = input.id; });
+    input.addEventListener('input', renderRulePreviews);
+    input.addEventListener('change', () => {
+      const v = input.value.trim();
+      updateSettings({ fileNameRules: { ...nameRules(), [key]: v || DEFAULT_NAME_RULES[key] } });
+      if (!v) input.value = DEFAULT_NAME_RULES[key];
+      renderRulePreviews();
+      showToast('請求書のファイル名の決まりを保存しました', null);
+    });
+  }
+  // 要素のボタン：最後に選んだ欄の、文字を打っている位置に入れる
+  $('rule-tokens').addEventListener('mousedown', (e) => e.preventDefault()); // 欄から文字の位置を外さない
+  $('rule-tokens').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-rule-token]');
+    if (!b) return;
+    const input = $(lastRuleInput);
+    const at = document.activeElement === input ? input.selectionStart : input.value.length;
+    const end = document.activeElement === input ? input.selectionEnd : at;
+    // 前の文字が区切りでなければ「_」を挟む（{宛名}{発効日} のようにくっつかないように）
+    const prev = input.value.slice(0, at).slice(-1);
+    const token = `${prev && !/[_\-・ 　]/.test(prev) ? '_' : ''}{${b.dataset.ruleToken}}`;
+    input.value = input.value.slice(0, at) + token + input.value.slice(end);
+    input.focus();
+    input.setSelectionRange(at + token.length, at + token.length);
+    input.dispatchEvent(new Event('change'));
+  });
+  $('rule-reset').addEventListener('click', () => {
+    if (!confirm('ファイル名の決まりを元に戻します')) return;
+    updateSettings({ fileNameRules: { ...DEFAULT_NAME_RULES } });
+    $('rule-month').value = DEFAULT_NAME_RULES.month;
+    $('rule-project').value = DEFAULT_NAME_RULES.project;
+    renderRulePreviews();
+  });
 }
 
 // ---------- 控え（発行した請求書） ----------
@@ -297,24 +423,91 @@ function checkInvoice(d) {
 
 // ---------- 保存 ----------
 
-// 作っている途中なら、確かめてから控えを残す。控えを見ているときはそのまま出す
-function prepareSave() {
-  const d = currentData();
-  if (inv.snapshot) return d;
-  if (!checkInvoice(d)) return null;
-  markIssued(d);
-  return d;
+// PDF を作る部品（html2canvas・jsPDF）は js/vendor に同梱。最初に PDF を保存するときに読み込む
+const loadedScripts = new Map();
+function loadScript(src) {
+  if (!loadedScripts.has(src)) {
+    loadedScripts.set(src, new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = src;
+      el.onload = resolve;
+      el.onerror = () => { loadedScripts.delete(src); reject(new Error(`${src} を読み込めませんでした`)); };
+      document.head.appendChild(el);
+    }));
+  }
+  return loadedScripts.get(src);
 }
 
-function printInvoice() {
-  const name = invoiceFileName(currentData());
-  if (!prepareSave()) return;
-  // 印刷画面で「PDFに保存」にしたときのファイル名はページのタイトルになる
-  const prev = document.title;
-  document.title = name;
-  window.addEventListener('afterprint', () => { document.title = prev; }, { once: true });
-  window.print();
+// 用紙を A4 の幅（794px）で画像にして、A4 の PDF にする（日本語もそのまま出る）
+async function makeInvoicePdf() {
+  await Promise.all([loadScript('js/vendor/html2canvas.min.js'), loadScript('js/vendor/jspdf.umd.min.js')]);
+  const clone = $('invoice-paper').cloneNode(true);
+  clone.removeAttribute('id');
+  clone.classList.add('pdf-render');
+  // 請求書の画面の裏に置いて描く（見えない）
+  const holder = document.createElement('div');
+  holder.className = 'pdf-holder';
+  holder.appendChild(clone);
+  document.body.appendChild(holder);
+  try {
+    const canvas = await html2canvas(clone, { scale: 2, backgroundColor: '#ffffff', logging: false });
+    const pdf = new window.jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+    const pageW = 210;
+    const pageH = 297;
+    let w = pageW;
+    let h = (canvas.height * pageW) / canvas.width;
+    if (h > pageH) { w = (w * pageH) / h; h = pageH; } // 1 枚に収める
+    pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', (pageW - w) / 2, 0, w, h);
+    return pdf.output('blob');
+  } finally {
+    holder.remove();
+  }
 }
+
+// 保存先を選べるブラウザ（PC の Chrome・Edge）は保存先を選ぶ画面を出す。それ以外はダウンロードとして保存
+const canPickSave = () => typeof window.showSaveFilePicker === 'function' && !isNarrow();
+
+async function pickSaveHandle(fileName, description, mime, ext) {
+  if (!canPickSave()) return null;
+  return window.showSaveFilePicker({ suggestedName: fileName, types: [{ description, accept: { [mime]: [ext] } }] });
+}
+
+async function writeFile(handle, fileName, blob) {
+  if (!handle) { downloadFile(fileName, blob); return; }
+  const w = await handle.createWritable();
+  await w.write(blob);
+  await w.close();
+}
+
+// 保存の流れ：確かめる → 保存先を選ぶ（選ぶ画面はボタンを押した直後に出す）→ 作る → 書く → 控えを残す
+async function saveInvoiceFile({ ext, mime, description, build, button }) {
+  const d = currentData();
+  if (!inv.snapshot && !checkInvoice(d)) return;
+  const fileName = `${invoiceFileName(d)}.${ext}`;
+  let handle = null;
+  try {
+    handle = await pickSaveHandle(fileName, description, mime, `.${ext}`);
+  } catch (e) {
+    if (e?.name === 'AbortError') return; // 保存先を選ぶ画面を閉じた
+  }
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = '作成中…';
+  try {
+    await writeFile(handle, fileName, await build(d));
+    if (!inv.snapshot) markIssued(d);
+    showToast(`「${fileName}」を保存しました`, null);
+  } catch (e) {
+    alert(`保存できませんでした：${e?.message ?? e}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
+const saveInvoicePdf = () => saveInvoiceFile({
+  ext: 'pdf', mime: 'application/pdf', description: 'PDF', button: $('iv-pdf'), build: () => makeInvoicePdf(),
+});
 
 const csvCell = (v) => {
   const s = String(v ?? '');
@@ -355,19 +548,18 @@ function downloadFile(name, blob) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-function saveInvoiceCsv() {
-  const name = invoiceFileName(currentData());
-  const d = prepareSave();
-  if (!d) return;
-  // 先頭の BOM で Excel でも文字化けしない
-  downloadFile(`${name}.csv`, new Blob(['﻿' + invoiceCsv(d)], { type: 'text/csv' }));
-}
+// 先頭の BOM で Excel でも文字化けしない
+const saveInvoiceCsv = () => saveInvoiceFile({
+  ext: 'csv', mime: 'text/csv', description: 'CSV', button: $('iv-csv'),
+  build: async (d) => new Blob(['\ufeff' + invoiceCsv(d)], { type: 'text/csv' }),
+});
 
 // ---------- 操作 ----------
 
 function bindInvoice() {
   $('iv-close').addEventListener('click', closeInvoice);
-  $('iv-pdf').addEventListener('click', printInvoice);
+  bindNameRules();
+  $('iv-pdf').addEventListener('click', saveInvoicePdf);
   $('iv-csv').addEventListener('click', saveInvoiceCsv);
   // 控えから作り直す（いまの案件・設定の内容で新しく作る）
   $('iv-remake').addEventListener('click', () => {

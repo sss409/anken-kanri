@@ -414,7 +414,7 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
   /* タブは画面の下に固定 */
   .tabs {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
-    display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 0;
     background: var(--surface); border-top: 1px solid var(--border);
     padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
   }
@@ -720,3 +720,113 @@ body.sheet-open .fab, body.page-open .fab { display: none; }
   .with-dir .pr-cell:nth-of-type(3) { grid-column: 1 / -1; }
   .page-actions .primary { flex: 1; min-width: 0; }
 }
+
+/* ---------- 単価の数え方（1本あたり／1分あたり）・追加料金 ---------- */
+
+.unit-field .segmented button[data-unit].active { background: var(--long-soft); color: var(--long); }
+#f-price-row.row3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.minutes-field[hidden] { display: none; }
+
+.extras { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.extras-head { display: flex; align-items: baseline; justify-content: space-between; }
+.extras-head .field-label { font-size: 12px; color: var(--muted); font-weight: 600; }
+.extras-head .link { font-size: 12px; }
+#f-extras { display: flex; flex-direction: column; gap: 6px; }
+#f-extras:empty { display: none; }
+.extra-line { display: grid; grid-template-columns: minmax(0, 1fr) 120px 64px 32px; gap: 6px; align-items: center; }
+.extra-line input, .extra-item input, .extra-add input {
+  border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; width: 100%; min-width: 0;
+  background: var(--surface-2); font-size: 14px; color: var(--text);
+}
+.extra-line input:focus, .extra-item input:focus, .extra-add input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+/* 回数の欄は後ろに「回」 */
+.qty-input { position: relative; display: block; }
+.qty-input::after { content: "回"; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 12px; pointer-events: none; }
+.qty-input input { padding-right: 22px; }
+/* 上の共通の余白より後に書いて、¥・回の分をあける */
+.extra-line .yen-input input, .extra-item .yen-input input, .extra-add .yen-input input { padding-left: 24px; }
+.extra-line .qty-input input { padding-right: 22px; }
+.extra-remove { font-size: 13px; padding: 4px 6px; color: var(--muted); border-color: transparent; }
+.extra-remove:hover { color: var(--danger); border-color: var(--danger); }
+.extra-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-btn { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); color: var(--text); }
+.chip-btn small { color: var(--muted); margin-left: 2px; }
+.chip-btn.other { color: var(--muted); border-style: dashed; }
+.chip-btn:hover { color: var(--accent); }
+.amount-total { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.amount-total small { color: var(--muted); font-size: 12px; }
+.money .extra-line-sum { color: var(--accent); }
+
+/* 設定画面：追加料金の項目 */
+.extra-items { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.extra-item, .extra-add { display: grid; grid-template-columns: minmax(0, 1fr) 130px 56px; gap: 6px; align-items: center; }
+.extra-item .pr-clear { justify-self: center; }
+.extra-add { padding-bottom: 10px; }
+.extra-add button { white-space: nowrap; }
+
+/* クライアントの単価：ロングの「/本・/分」 */
+.unit-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: center; }
+.unit-pair select {
+  border: 1px solid var(--border); border-radius: 8px; padding: 7px 4px; background: var(--surface-2); color: var(--text); font-size: 13px;
+}
+
+@media (max-width: 860px) {
+  /* スマホは名前を 1 段目に、単価・回数・✕ を 2 段目に */
+  .extra-line { grid-template-columns: minmax(0, 1fr) 76px 30px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
+  .extra-line > input[data-extra-key="name"] { grid-column: 1 / -1; }
+  /* 金額は右に大きく、「クライアントの単価を決める」はその下 */
+  .amount-preview { flex-direction: column-reverse; align-items: stretch; gap: 6px; }
+  .amount-preview .link { align-self: flex-start; }
+  .extra-item, .extra-add { grid-template-columns: minmax(0, 1fr) 100px 52px; }
+}
+
+/* ---------- 入力画面：クライアント・編集者をボタンで選ぶ ---------- */
+
+.pick-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+.pick-chips:empty { display: none; }
+.chip-btn.pick[style] { background: hsl(var(--hue) 60% var(--chip-l)); color: hsl(var(--hue) 55% var(--chip-text-l)); border-color: transparent; }
+.chip-btn.pick.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chip-btn.pick:not([style]).on { background: var(--accent-soft); color: var(--accent); }
+
+/* ---------- 単価タブ ---------- */
+
+.price-sec { margin-bottom: 22px; }
+.price-sec .section-title { margin-top: 0; }
+.price-sec .page-help { margin-bottom: 10px; }
+.price-sec .price-add { margin-top: 8px; }
+.extra-card { padding: 12px; }
+.extra-card .extra-add { padding-bottom: 0; }
+
+/* ---------- 設定画面：委託先の編集者 ---------- */
+
+.editor-reg { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border); }
+.editor-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.editor-pill {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border); font-size: 13px; font-weight: 600;
+}
+.editor-pill button { border: none; background: none; padding: 0 6px; color: var(--muted); font-size: 12px; }
+.editor-pill button:hover { color: var(--danger); }
+.editor-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.editor-add input, .rule-input {
+  border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; width: 100%; min-width: 0;
+  background: var(--surface-2); font-size: 14px; color: var(--text);
+}
+.editor-add input:focus, .rule-input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+
+/* ---------- 請求タブ：請求書のファイル名の決まり ---------- */
+
+.name-rules { margin-top: 22px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.name-rules h3 { font-size: 13px; margin: 0; padding-left: 8px; border-left: 3px solid var(--accent); }
+.name-rules .set-help { margin: 0; }
+.rule-block { display: flex; flex-direction: column; gap: 4px; }
+.rule-block label { font-size: 12px; color: var(--muted); font-weight: 600; }
+.rule-input { font-family: inherit; }
+.rule-preview { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.rule-preview span { color: var(--text); }
+.rule-tokens { display: flex; flex-wrap: wrap; gap: 6px; }
+#rule-reset { align-self: flex-start; }
+
+/* PDF を作るときの用紙（請求書の画面の裏に A4 の幅で置く） */
+.pdf-holder { position: fixed; left: 0; top: 0; z-index: -1; pointer-events: none; }
+.invoice-paper.pdf-render { width: 794px; max-width: none; box-shadow: none; margin: 0; }

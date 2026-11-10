@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.12.0';
+const APP_VERSION = '0.13.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -76,14 +76,24 @@ const clientStyle = (name) => `--hue:${clientHue(name)}`;
 
 // 設定に入れて同期する（PC で入れたらスマホでも出る）
 const isDirector = () => !!state.settings?.director;
-const editorNames = () => [...new Set(state.projects.map((p) => p.editor).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
+// 委託先の編集者：設定画面で登録した人＋案件に入っている人
+const registeredEditors = () => state.settings?.editors ?? [];
+const editorNames = () => [...new Set([...registeredEditors(), ...state.projects.map((p) => p.editor).filter(Boolean)])]
+  .sort((a, b) => a.localeCompare(b, 'ja'));
+// 入力画面で選べるクライアント：単価タブで登録したもの＋案件のあるもの（よく使う順）
+function pickClientNames() {
+  const count = new Map();
+  for (const p of state.projects) count.set(p.client, (count.get(p.client) ?? 0) + 1);
+  for (const c of Object.keys(state.settings?.clientPrices ?? {})) if (!count.has(c)) count.set(c, 0);
+  return [...count.keys()].sort((a, b) => count.get(b) - count.get(a) || a.localeCompare(b, 'ja'));
+}
 const SELF_LABEL = '自分';
 const editorLabel = (name) => name || SELF_LABEL;
 
 function toggleDirector() {
   updateSettings({ director: !isDirector() });
   renderAll();
-  if (pageOpen('prices-view')) renderPriceList(); // 担当編集者・委託単価の列を出し入れする
+  if (settingsOpen()) renderEditorList();
   showToast(isDirector() ? 'ディレクター機能をオンにしました（案件に担当編集者と委託単価を入れられます）' : 'ディレクター機能をオフにしました', null);
 }
 
@@ -121,14 +131,17 @@ function renderAll() {
   if (state.tab === 'list') renderActiveList();
   if (state.tab === 'clients') renderClients();
   if (state.tab === 'calendar') renderCalendar();
-  if (state.tab === 'billing') renderBilling();
+  if (state.tab === 'billing') { renderBilling(); renderNameRules(); }
   if (state.tab === 'done') renderDoneList();
+  if (state.tab === 'prices') renderPricesTab();
 }
 
 // ---------- 入力フォーム ----------
 
 const form = {
   kind: 'short',
+  unit: 'video',         // 単価の数え方：video＝1本あたり、minute＝1分あたり（ロングのときだけ選べる）
+  extras: [],            // 追加料金 [{ name, price, qty }]
   priceTouched: false,   // 単価を手で変えたら自動入力しない
   billingTouched: false, // 請求月を手で変えたら納期に追従しない
   feeTouched: false,     // 委託単価を手で変えたら自動入力しない
@@ -137,27 +150,46 @@ const form = {
 function setKind(kind) {
   form.kind = kind;
   for (const b of $('f-kind').querySelectorAll('button')) b.classList.toggle('active', b.dataset.kind === kind);
+  // 1分あたりはロング（横動画）だけ。ショートに戻したら 1本あたりにする
+  if (kind !== 'long') setUnit('video');
+  $('f-unit-field').hidden = kind !== 'long';
 }
 
-// 同じクライアント・種別で最後に登録した単価
-function lastPrice(client, kind) {
-  const hits = state.projects
-    .filter((p) => p.client === client && p.kind === kind)
-    .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
-  return hits[0]?.unitPrice;
+// 単価の数え方を切り替える（1分あたりのときは尺の欄を出し、単価・委託単価の見出しを「円/分」に）
+function setUnit(unit) {
+  form.unit = unit;
+  for (const b of $('f-unit').querySelectorAll('button')) b.classList.toggle('active', b.dataset.unit === unit);
+  const perMin = unit === 'minute';
+  document.querySelector('#f-price-row .minutes-field').hidden = !perMin;
+  $('f-price-row').classList.toggle('row3', perMin);
+  $('f-price-label').textContent = perMin ? '単価（円/分）' : '単価（円）';
+  $('f-fee-label').textContent = perMin ? '委託単価（円/分）' : '委託単価（円）';
+  $('f-fee').placeholder = perMin ? '1分あたり' : '1本あたり';
+  updateAmount();
 }
+
+// 同じクライアント・種別で最後に登録した案件
+function lastProject(client, kind) {
+  return state.projects
+    .filter((p) => p.client === client && p.kind === kind)
+    .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))[0];
+}
+const lastPrice = (client, kind) => lastProject(client, kind)?.unitPrice;
 
 // クライアントの単価の設定（なければ undefined）
 const clientPrice = (client) => state.settings?.clientPrices?.[client];
 const FEE_KEY = { short: 'feeShort', long: 'feeLong' };
 
-// 単価は「クライアントの単価」→「前回の単価」の順に入れる
+// 単価は「クライアントの単価」→「前回の単価」の順に入れる（ロングは単価の数え方も一緒に）
 function autoFillPrice() {
   if (form.priceTouched && $('f-price').value !== '') return;
   const client = $('f-client').value.trim();
-  const set = clientPrice(client)?.[form.kind];
-  const price = set ?? lastPrice(client, form.kind);
+  const cp = clientPrice(client);
+  const set = cp?.[form.kind];
+  const last = lastProject(client, form.kind);
+  const price = set ?? last?.unitPrice;
   if (price != null) $('f-price').value = price;
+  if (form.kind === 'long') setUnit(set != null ? (cp.longUnit ?? 'video') : (last?.priceUnit ?? form.unit));
   $('f-price-src').textContent = set != null ? 'クライアントの単価' : price != null ? '前回の単価' : '';
   updateAmount();
 }
@@ -192,20 +224,81 @@ function onClientChosen() {
   autoFillFee();
 }
 
+// 入力中の内容で金額を出す（計算は util.js の amountOf・feeOf と同じ）
+function draftProject() {
+  return {
+    unitPrice: Number($('f-price').value) || 0,
+    count: Number($('f-count').value) || 0,
+    priceUnit: form.unit,
+    minutes: Math.floor(Number($('f-minutes').value) || 0),
+    feeUnit: Number($('f-fee').value) || 0,
+    extras: form.extras,
+  };
+}
+
 function updateAmount() {
-  const price = Number($('f-price').value) || 0;
-  const count = Number($('f-count').value) || 0;
-  const fee = (Number($('f-fee').value) || 0) * count;
-  $('f-amount').textContent = yen(price * count);
+  const d = draftProject();
+  const total = amountOf(d);
+  const fee = feeOf(d);
+  const extra = extrasAmountOf(d);
+  $('f-amount').textContent = yen(total);
+  $('f-amount-breakdown').textContent = extra ? `編集 ${yen(baseAmountOf(d))} ＋ 追加 ${yen(extra)} ＝ ` : '';
   $('f-fee-amount').textContent = yen(fee);
-  $('f-profit').textContent = yen(price * count - fee);
-  $('f-profit').classList.toggle('minus', price * count - fee < 0);
+  $('f-profit').textContent = yen(total - fee);
+  $('f-profit').classList.toggle('minus', total - fee < 0);
+}
+
+// ---------- 追加料金（案件の入力画面） ----------
+
+const extraItems = () => state.settings?.extraItems ?? [];
+
+function renderExtras() {
+  $('f-extras').innerHTML = form.extras.map((x, i) => `
+    <div class="extra-line" data-extra-index="${i}">
+      <input data-extra-key="name" value="${esc(x.name)}" placeholder="名前" aria-label="追加料金の名前">
+      <span class="yen-input"><input data-extra-key="price" type="number" min="0" step="100" inputmode="numeric" value="${x.price ?? ''}" placeholder="単価" aria-label="単価"></span>
+      <span class="qty-input"><input data-extra-key="qty" type="number" min="1" step="1" inputmode="numeric" value="${x.qty ?? 1}" aria-label="回数"></span>
+      <button type="button" class="ghost icon-btn extra-remove" data-extra-remove aria-label="この追加料金を消す" title="消す">✕</button>
+    </div>`).join('');
+  const items = extraItems();
+  $('f-extra-presets').innerHTML = items.map((it, i) =>
+    `<button type="button" class="chip-btn" data-extra-preset="${i}">＋ ${esc(it.name)} <small>${yen(it.price ?? 0)}</small></button>`).join('')
+    + '<button type="button" class="chip-btn other" data-extra-preset="other">＋ その他</button>';
+  updateAmount();
+}
+
+function bindExtras() {
+  $('f-extra-presets').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-extra-preset]');
+    if (!b) return;
+    const it = b.dataset.extraPreset === 'other' ? { name: '', price: null } : extraItems()[Number(b.dataset.extraPreset)];
+    form.extras = [...form.extras, { name: it.name, price: it.price, qty: 1 }];
+    renderExtras();
+    const lines = $('f-extras').querySelectorAll('.extra-line');
+    lines[lines.length - 1]?.querySelector(it.name ? '[data-extra-key="price"]' : '[data-extra-key="name"]')?.focus();
+  });
+  $('f-extras').addEventListener('input', (e) => {
+    const input = e.target.closest('[data-extra-key]');
+    if (!input) return;
+    const i = Number(input.closest('[data-extra-index]').dataset.extraIndex);
+    const key = input.dataset.extraKey;
+    const raw = input.value;
+    form.extras = form.extras.map((x, j) => (j === i ? { ...x, [key]: key === 'name' ? raw : (raw === '' ? null : Number(raw)) } : x));
+    updateAmount();
+  });
+  $('f-extras').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-extra-remove]');
+    if (!b) return;
+    const i = Number(b.closest('[data-extra-index]').dataset.extraIndex);
+    form.extras = form.extras.filter((_, j) => j !== i);
+    renderExtras();
+  });
 }
 
 function resetForm({ keepClient = false } = {}) {
   // 続けて追加するときは、クライアント・種別・単価・担当編集者・委託単価をそのまま残す
   const keep = keepClient ? {
-    client: $('f-client').value, kind: form.kind, price: $('f-price').value, editor: $('f-editor').value, fee: $('f-fee').value,
+    client: $('f-client').value, kind: form.kind, unit: form.unit, price: $('f-price').value, editor: $('f-editor').value, fee: $('f-fee').value,
   } : null;
   state.editingId = null;
   $('project-form').reset();
@@ -221,16 +314,18 @@ function resetForm({ keepClient = false } = {}) {
   $('f-count').value = 1;
   $('f-start').value = todayStr();
   $('f-billing').value = monthOf(todayStr());
+  form.extras = [];
   if (keep) {
     $('f-client').value = keep.client;
     setKind(keep.kind);
+    setUnit(keep.unit);
     $('f-price').value = keep.price;
     $('f-editor').value = keep.editor;
     $('f-fee').value = keep.fee;
   } else {
     setKind('short');
   }
-  updateAmount();
+  renderExtras();
 }
 
 function startEdit(id) {
@@ -245,6 +340,10 @@ function startEdit(id) {
   $('f-client').value = p.client;
   $('f-title').value = p.title;
   setKind(p.kind);
+  setUnit(isPerMinute(p) ? 'minute' : 'video');
+  $('f-minutes').value = p.minutes != null ? Math.floor(p.minutes) : '';
+  form.extras = extrasOf(p).map((x) => ({ ...x }));
+  renderExtras();
   $('f-price').value = p.unitPrice;
   $('f-count').value = p.count;
   $('f-start').value = p.startDate;
@@ -267,6 +366,8 @@ const isNarrow = () => matchMedia('(max-width: 860px)').matches;
 function openSheet() {
   document.body.classList.add('sheet-open');
   $('btn-add-more').hidden = !!state.editingId;
+  renderExtras(); // 単価タブで決めた追加料金の項目をボタンに出す（同期で変わった分も）
+  renderPickChips();
   $('project-form').scrollTop = 0;
   // PC ではすぐ打ち始められるようにする（スマホはキーボードが勝手に出ないように何もしない）
   if (!isNarrow()) (state.editingId || $('f-client').value ? $('f-title') : $('f-client')).focus();
@@ -283,6 +384,12 @@ function readForm() {
     kind: form.kind,
     unitPrice: Number($('f-price').value),
     count: Number($('f-count').value),
+    priceUnit: form.kind === 'long' ? form.unit : 'video',
+    minutes: form.kind === 'long' && form.unit === 'minute' ? Math.floor(Number($('f-minutes').value) || 0) : null,
+    // 名前も単価も空の行は捨てる。回数が空なら 1
+    extras: form.extras
+      .map((x) => ({ name: (x.name ?? '').trim(), price: x.price, qty: x.qty == null || x.qty === '' ? 1 : Number(x.qty) }))
+      .filter((x) => x.name || x.price != null),
     startDate: $('f-start').value,
     dueDate: $('f-due').value,
     billingMonth: $('f-billing').value,
@@ -291,6 +398,12 @@ function readForm() {
   if (!v.client) return { error: 'クライアント名を入れてください' };
   if ($('f-price').value === '' || !(v.unitPrice >= 0)) return { error: '単価を入れてください' };
   if (!Number.isInteger(v.count) || v.count < 1) return { error: '本数は1以上の整数で入れてください' };
+  if (v.priceUnit === 'minute' && !(v.minutes > 0)) return { error: '1分あたりの単価のときは、1本の尺（1分以上）を入れてください' };
+  for (const x of v.extras) {
+    if (!x.name) return { error: '追加料金の名前を入れてください' };
+    if (x.price == null || !(x.price >= 0)) return { error: `追加料金「${x.name}」の単価を入れてください` };
+    if (!Number.isInteger(x.qty) || x.qty < 1) return { error: `追加料金「${x.name}」の回数は1以上の整数で入れてください` };
+  }
   if (!v.startDate || !v.dueDate) return { error: '着手日と納期を入れてください' };
   if (v.dueDate < v.startDate) return { error: '納期が着手日より前になっています' };
   if (!v.billingMonth) return { error: '請求月を入れてください' };
@@ -343,9 +456,33 @@ function bindForm() {
   });
   $('f-editor').addEventListener('change', () => { if (!state.editingId || $('f-fee').value === '') { form.feeTouched = false; autoFillFee(); } });
   $('f-fee').addEventListener('input', () => { form.feeTouched = true; updateAmount(); });
+  $('f-unit').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-unit]');
+    if (b) setUnit(b.dataset.unit);
+  });
+  $('f-minutes').addEventListener('input', updateAmount);
+  bindExtras();
   $('f-client').addEventListener('change', onClientChosen);
   $('f-price').addEventListener('input', () => { form.priceTouched = true; $('f-price-src').textContent = ''; updateAmount(); });
-  $('f-open-prices').addEventListener('click', () => openPrices($('f-client').value.trim()));
+  // クライアント・編集者をボタンで選ぶ
+  $('f-client-chips').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pick-client]');
+    if (!b) return;
+    $('f-client').value = b.dataset.pickClient;
+    onClientChosen();
+    renderPickChips();
+    $('f-title').focus();
+  });
+  $('f-editor-chips').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pick-editor]');
+    if (!b) return;
+    $('f-editor').value = b.dataset.pickEditor;
+    form.feeTouched = false;
+    autoFillFee();
+    renderPickChips();
+  });
+  $('f-client').addEventListener('input', renderPickChips);
+  $('f-editor').addEventListener('input', renderPickChips);
   $('f-count').addEventListener('input', updateAmount);
   $('f-due').addEventListener('change', () => {
     if (!form.billingTouched && $('f-due').value) $('f-billing').value = monthOf($('f-due').value);
@@ -370,8 +507,7 @@ function bindForm() {
   // Esc でも閉じる（単価の設定などのダイアログが開いているときはそちらが先に閉じる）
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return;
-    if (pageOpen('prices-view')) closePrices();
-    else if (settingsOpen()) closeSettings();
+    if (settingsOpen()) closeSettings();
     else if (document.body.classList.contains('sheet-open')) cancelForm();
   });
   $('btn-delete').addEventListener('click', async () => {
@@ -384,8 +520,21 @@ function bindForm() {
   $('fab-add').addEventListener('click', openNewForm);
 }
 
+// 入力画面のクライアント・編集者のボタン（いま入っている名前は色が付く）
+function renderPickChips() {
+  const cur = $('f-client').value.trim();
+  $('f-client-chips').innerHTML = pickClientNames().slice(0, 12).map((n) =>
+    `<button type="button" class="chip-btn pick ${n === cur ? 'on' : ''}" data-pick-client="${esc(n)}" style="${clientStyle(n)}">${esc(n)}</button>`).join('');
+  const ed = $('f-editor').value.trim();
+  const eds = [...registeredEditors(), ...editorNames().filter((n) => !registeredEditors().includes(n))];
+  $('f-editor-chips').innerHTML = eds.length
+    ? [...eds.map((n) => `<button type="button" class="chip-btn pick ${n === ed ? 'on' : ''}" data-pick-editor="${esc(n)}">${esc(n)}</button>`),
+      `<button type="button" class="chip-btn pick ${ed === '' ? 'on' : ''}" data-pick-editor="">${SELF_LABEL}</button>`].join('')
+    : '';
+}
+
 function renderClientOptions() {
-  $('client-options').innerHTML = clientNames().map((n) => `<option value="${esc(n)}">`).join('');
+  $('client-options').innerHTML = pickClientNames().map((n) => `<option value="${esc(n)}">`).join('');
   $('editor-options').innerHTML = editorNames().map((n) => `<option value="${esc(n)}">`).join('');
 }
 
@@ -429,10 +578,11 @@ function projectRow(p, { mode }) {
         <div class="sub">${shortDate(p.startDate)} 〜 ${shortDate(p.dueDate)} ・ 請求 ${monthLabel(p.billingMonth)}${p.memo ? ` ・ ${esc(p.memo)}` : ''}</div>
       </div>
       <div class="money">
-        <small>${yen(p.unitPrice)} × ${p.count}本</small>
+        <small>${priceFormula(p)}</small>
+        ${extrasOf(p).length ? `<small class="extra-line-sum" title="${esc(extrasOf(p).map((x) => `${x.name} ${yen(x.price)}×${x.qty}`).join('\n'))}">＋ 追加 ${yen(extrasAmountOf(p))}</small>` : ''}
         <b>${yen(amountOf(p))}</b>
         ${isDirector() && (p.editor || p.feeUnit != null)
-    ? `<small class="fee-line" title="委託費（${yen(p.feeUnit ?? 0)} × ${p.count}本）と利益">委託 ${yen(feeOf(p))}・利益 <span class="${amountOf(p) - feeOf(p) < 0 ? 'minus' : ''}">${yen(amountOf(p) - feeOf(p))}</span></small>`
+    ? `<small class="fee-line" title="委託費（${yen(p.feeUnit ?? 0)}${isPerMinute(p) ? '/分' : ''} × ${isPerMinute(p) ? `${unitsOf(p)}分` : `${p.count}本`}）と利益">委託 ${yen(feeOf(p))}・利益 <span class="${amountOf(p) - feeOf(p) < 0 ? 'minus' : ''}">${yen(amountOf(p) - feeOf(p))}</span></small>`
     : ''}
       </div>
       <div class="actions">
@@ -581,7 +731,6 @@ function renderClients() {
             ${unbilled ? `<span class="bill-state none">未請求 ${yen(unbilled)}</span>` : ''}
             ${waiting ? `<span class="bill-state wait">入金待ち ${yen(waiting)}</span>` : ''}
           </div>
-          ${priceButton(client)}
         </header>
         <div class="client-columns">
           <div>
@@ -592,14 +741,6 @@ function renderClients() {
         </div>
       </section>`;
   }).join('');
-}
-
-// クライアント別の見出しに出す単価（押すと単価の設定を開く）
-function priceButton(client) {
-  const cp = clientPrice(client) ?? {};
-  const parts = [cp.short != null ? `ショート ${yen(cp.short)}` : '', cp.long != null ? `ロング ${yen(cp.long)}` : ''].filter(Boolean);
-  return `<button class="ghost small price-btn" data-open-prices="${esc(client)}" title="このクライアントの単価を決める（案件を追加するときに自動で入る）">
-    ${parts.length ? `単価 ${parts.join('・')}` : '単価を設定'}</button>`;
 }
 
 // ---------- 完了済み ----------
@@ -846,7 +987,7 @@ function renderBilling() {
               <span class="grow">${esc(p.title) || '<span class="muted">（案件名なし）</span>'}</span>
               ${editorTag(p)}
               <span class="muted">${p.status === 'done' ? '完了' : `納期 ${shortDate(p.dueDate)}`}</span>
-              <span class="num">${yen(p.unitPrice)} × ${p.count} = <b>${yen(amountOf(p))}</b></span>
+              <span class="num">${priceFormula(p)}${extrasOf(p).length ? ` ＋ 追加 ${yen(extrasAmountOf(p))}` : ''} = <b>${yen(amountOf(p))}</b></span>
               ${dir && feeOf(p) ? `<span class="num fee-line">委託 ${yen(feeOf(p))}</span>` : ''}
             </li>`).join('')}
         </ul>
@@ -1020,7 +1161,15 @@ function renderPriceList() {
       <div class="price-row ${dir ? 'with-dir' : ''}" data-price-client="${esc(name)}" style="${clientStyle(name)}">
         <div class="pr-name"><span class="client-chip">${esc(name)}</span><small class="muted">${count ? `案件 ${count}件` : '案件なし'}</small></div>
         ${yenInput(cp, 'short', 'ショート単価', lastS != null ? `前回 ${lastS}` : '未設定')}
-        ${yenInput(cp, 'long', 'ロング単価', lastL != null ? `前回 ${lastL}` : '未設定')}
+        <div class="pr-cell"><span class="pr-label">ロング単価</span>
+          <span class="unit-pair">
+            <span class="yen-input"><input type="number" min="0" step="100" inputmode="numeric" data-price-key="long" value="${cp.long ?? ''}" placeholder="${lastL != null ? `前回 ${lastL}` : '未設定'}" aria-label="ロング単価"></span>
+            <select data-price-key="longUnit" aria-label="ロングの単価の数え方" title="1本あたりか、1分あたり（尺）か">
+              <option value="video" ${cp.longUnit !== 'minute' ? 'selected' : ''}>/本</option>
+              <option value="minute" ${cp.longUnit === 'minute' ? 'selected' : ''}>/分</option>
+            </select>
+          </span>
+        </div>
         ${dir ? `
         <label class="pr-cell"><span class="pr-label">担当編集者</span>
           <input data-price-key="editor" list="editor-options" value="${esc(cp.editor ?? '')}" placeholder="決めない">
@@ -1033,8 +1182,13 @@ function renderPriceList() {
   }).join('') : '<p class="empty">まだクライアントがありません。下の欄から追加してください。</p>';
 }
 
-// ---------- 全面のページ（設定・クライアントの単価） ----------
-// 重ねて開ける（入力画面 → 単価、設定 → 単価 など）。閉じると下のページに戻る
+// 単価タブ：クライアントの単価と追加料金の項目
+function renderPricesTab() {
+  renderPriceList();
+  renderExtraItems();
+}
+
+// ---------- 全面のページ（設定） ----------
 
 const pageOpen = (id) => $(id).classList.contains('open');
 
@@ -1050,12 +1204,11 @@ function closePage(id) {
   if (!document.querySelector('.page-view.open')) document.body.classList.remove('page-open');
 }
 
-// クライアントの単価のページを開く。focus を渡すと、そのクライアントの行に入れられる状態にする（まだ無ければ一覧に足す）
-function openPrices(focus) {
-  if (focus && !priceClientNames().includes(focus)) setClientPrice(focus, {});
+// 単価タブで、そのクライアントの行に入れられる状態にする（まだ無ければ一覧に足す）
+function focusPriceRow(name) {
+  if (!priceClientNames().includes(name)) setClientPrice(name, {});
   renderPriceList();
-  openPage('prices-view');
-  const row = focus && [...$('price-list').querySelectorAll('[data-price-client]')].find((c) => c.dataset.priceClient === focus);
+  const row = [...$('price-list').querySelectorAll('[data-price-client]')].find((c) => c.dataset.priceClient === name);
   if (row) {
     row.scrollIntoView({ block: 'center' });
     row.classList.add('flash');
@@ -1063,17 +1216,7 @@ function openPrices(focus) {
   }
 }
 
-function closePrices() {
-  closePage('prices-view');
-  renderAll();
-  if (pageOpen('settings-view')) renderSettingsSummary();
-  // 案件の入力中（追加のとき）に開いていたら、決め直した単価を入れ直す
-  if (document.body.classList.contains('sheet-open') && !state.editingId && $('f-client').value.trim()) onClientChosen();
-}
-
 function bindPrices() {
-  $('prices-close').addEventListener('click', closePrices);
-  $('btn-open-prices').addEventListener('click', () => openPrices());
   // 入れたらその場で保存（保存したことは下のお知らせで出す）
   $('price-list').addEventListener('change', (e) => {
     const input = e.target.closest('[data-price-key]');
@@ -1081,9 +1224,9 @@ function bindPrices() {
     const client = input.closest('[data-price-client]').dataset.priceClient;
     const key = input.dataset.priceKey;
     const raw = input.value.trim();
-    const value = key === 'editor' ? raw : (raw === '' || !(Number(raw) >= 0) ? null : Number(raw));
+    const value = key === 'editor' || key === 'longUnit' ? raw : (raw === '' || !(Number(raw) >= 0) ? null : Number(raw));
     setClientPrice(client, { [key]: value });
-    if (key !== 'editor' && raw !== '' && value === null) input.value = '';
+    if (key !== 'editor' && key !== 'longUnit' && raw !== '' && value === null) input.value = '';
     input.closest('[data-price-client]').querySelector('[data-price-clear]').disabled = false;
     showToast(`「${client}」の単価を保存しました`, null);
   });
@@ -1100,7 +1243,58 @@ function bindPrices() {
     const name = $('price-add-name').value.trim();
     if (!name) return;
     $('price-add-name').value = '';
-    openPrices(name);
+    focusPriceRow(name);
+    renderClientOptions();
+    showToast(`「${name}」を追加しました。案件の入力画面でボタンから選べます`, null);
+  });
+}
+
+// ---------- 追加料金の項目（単価タブ。入れたらその場で保存） ----------
+
+function renderExtraItems() {
+  const items = extraItems();
+  $('extra-items').innerHTML = items.length ? items.map((it, i) => `
+    <div class="extra-item" data-extra-item="${i}">
+      <input data-item-key="name" value="${esc(it.name)}" aria-label="名前">
+      <span class="yen-input"><input data-item-key="price" type="number" min="0" step="100" inputmode="numeric" value="${it.price ?? ''}" aria-label="単価"></span>
+      <button type="button" class="ghost icon-btn pr-clear" data-item-remove aria-label="「${esc(it.name)}」を消す" title="消す（案件に入れた追加料金はそのまま残ります）">✕</button>
+    </div>`).join('') : '<p class="muted small-empty">まだありません。下の欄から追加してください。</p>';
+}
+
+function setExtraItems(items) {
+  updateSettings({ extraItems: items });
+  renderExtraItems();
+  if (document.body.classList.contains('sheet-open')) renderExtras();
+}
+
+function bindExtraItems() {
+  $('extra-add-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('extra-add-name').value.trim();
+    const raw = $('extra-add-price').value;
+    if (!name) { $('extra-add-name').focus(); return; }
+    setExtraItems([...extraItems(), { name, price: raw === '' ? 0 : Math.max(0, Number(raw) || 0) }]);
+    $('extra-add-name').value = '';
+    $('extra-add-price').value = '';
+    showToast(`追加料金「${name}」を追加しました`, null);
+  });
+  $('extra-items').addEventListener('change', (e) => {
+    const input = e.target.closest('[data-item-key]');
+    if (!input) return;
+    const i = Number(input.closest('[data-extra-item]').dataset.extraItem);
+    const key = input.dataset.itemKey;
+    const value = key === 'name' ? input.value.trim() : Math.max(0, Number(input.value) || 0);
+    if (key === 'name' && !value) { renderExtraItems(); return; } // 名前は空にしない
+    setExtraItems(extraItems().map((it, j) => (j === i ? { ...it, [key]: value } : it)));
+    showToast('追加料金の項目を保存しました', null);
+  });
+  $('extra-items').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-item-remove]');
+    if (!b) return;
+    const i = Number(b.closest('[data-extra-item]').dataset.extraItem);
+    const it = extraItems()[i];
+    if (!confirm(`追加料金の項目「${it.name}」を消します（案件に入れた追加料金はそのまま残ります）`)) return;
+    setExtraItems(extraItems().filter((_, j) => j !== i));
   });
 }
 
@@ -1108,22 +1302,45 @@ function bindPrices() {
 
 const settingsOpen = () => pageOpen('settings-view');
 
-function renderSettingsSummary() {
-  const n = Object.values(state.settings?.clientPrices ?? {}).filter((cp) => cp.short != null || cp.long != null).length;
-  $('set-prices-text').textContent = n
-    ? `${n}件のクライアントで決めてあります。クライアントを選ぶだけで単価が入ります`
-    : '決めておくと、クライアントを選ぶだけで単価が入ります';
+// 委託先の編集者（ディレクター機能）。登録すると入力画面の「担当編集者」でボタンから選べる
+function renderEditorList() {
+  const list = registeredEditors();
+  $('editor-list').innerHTML = list.length
+    ? list.map((n, i) => `<span class="editor-pill">${esc(n)}<button type="button" data-editor-remove="${i}" aria-label="${esc(n)}を外す" title="外す（案件に入っている担当はそのまま）">✕</button></span>`).join('')
+    : '<span class="muted small-empty">まだ登録していません</span>';
+}
+
+function bindEditorList() {
+  $('editor-add-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('editor-add-name').value.trim();
+    if (!name) { $('editor-add-name').focus(); return; }
+    if (!registeredEditors().includes(name)) updateSettings({ editors: [...registeredEditors(), name] });
+    $('editor-add-name').value = '';
+    renderEditorList();
+    renderClientOptions();
+    showToast(`委託先に「${name}」を登録しました`, null);
+  });
+  $('editor-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-editor-remove]');
+    if (!b) return;
+    const name = registeredEditors()[Number(b.dataset.editorRemove)];
+    if (!confirm(`委託先から「${name}」を外します（案件に入っている担当はそのまま残ります）`)) return;
+    updateSettings({ editors: registeredEditors().filter((n) => n !== name) });
+    renderEditorList();
+  });
 }
 
 function openSettings() {
   $('set-version').textContent = `v${APP_VERSION}`;
-  renderSettingsSummary();
+  renderEditorList();
   openPage('settings-view');
 }
 
 function closeSettings() {
   closePage('settings-view');
   renderAll();
+  if (document.body.classList.contains('sheet-open')) renderPickChips();
 }
 
 // ---------- 書き出し・読み込み ----------
@@ -1175,9 +1392,8 @@ function bindGlobal() {
     if (b) setTab(b.dataset.tab);
   });
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-make-invoice],[data-project-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter],[data-editor-filter],[data-open-prices]');
+    const t = e.target.closest('[data-make-invoice],[data-project-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter],[data-editor-filter]');
     if (!t) return;
-    if (t.dataset.openPrices != null) { openPrices(t.dataset.openPrices); return; }
     if (t.dataset.editorFilter != null) {
       state.editorFilter = t.dataset.editorFilter === '*' ? null : t.dataset.editorFilter;
       renderActiveList();
@@ -1299,13 +1515,15 @@ async function init() {
   bindForm();
   bindInvoice();
   bindPrices();
+  bindExtraItems();
+  bindEditorList();
   resetForm();
   state.settings = loadSettingsLocal();
   state.projects = await loadAll();
   state.invoices = new Map((await loadInvoices()).map((r) => [r.key, r]));
   state.deleted = new Map((await loadDeleted()).map((d) => [d.id, d]));
   const tab = prefGet('tab', 'list');
-  setTab(['list', 'clients', 'calendar', 'billing', 'done'].includes(tab) ? tab : 'list');
+  setTab(['list', 'clients', 'calendar', 'billing', 'done', 'prices'].includes(tab) ? tab : 'list');
   initSync({ getLocal: localData, applyMerged: applyData, onStatus: renderSyncStatus });
   // ホーム画面に追加したとき、電波がなくても開けるようにする（https か localhost のときだけ）
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
