@@ -31,14 +31,10 @@
       <button data-tab="billing">請求</button>
       <button data-tab="done"><span class="label-long">完了済み</span><span class="label-short">完了</span></button>
       <button data-tab="prices"><span class="label-long">単価設定</span><span class="label-short">単価</span></button>
+      <button data-tab="director"><span class="label-long">ディレクター</span><span class="label-short">委託</span></button>
     </nav>
     <div class="header-tools">
       <button class="sync-btn" id="btn-sync" hidden></button>
-      <!-- ディレクター機能のオン・オフ（押すたびに切り替え。オンの間は色が付く） -->
-      <button class="ghost icon-btn dir-btn" id="btn-director-quick" aria-pressed="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16v10a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19z" fill="currentColor"/>
-          <path d="M3.6 7.8 19 4.2l.6 2.4L4.2 10.2z" fill="currentColor"/><path d="M7.5 6.9 9.6 9.6M12 5.9l2.1 2.7M16.4 4.8l2.1 2.7" stroke="var(--surface)" stroke-width="1.6"/></svg>
-      </button>
       <button class="ghost icon-btn theme-btn" id="btn-theme"></button>
       <!-- 設定はメニューではなく、別の画面（設定画面）で行う -->
       <button class="ghost icon-btn settings-btn" id="btn-settings" aria-label="設定" title="設定">
@@ -129,8 +125,8 @@
             </div>
           </section>
 
-          <!-- ディレクター機能（設定画面・ヘッダーのボタンで切り替え）：担当してもらう編集者と委託費 -->
-          <section class="card form-sec dir-only">
+          <!-- 担当してもらう編集者と委託費（ディレクタータブで編集者ごとの委託費・純利益にまとまる） -->
+          <section class="card form-sec">
             <h3>担当編集者</h3>
             <div class="row2">
               <label>編集者
@@ -191,13 +187,32 @@
           <span class="muted" id="active-summary"></span>
           <button class="primary add-btn" id="btn-add-project">＋ 案件を追加</button>
         </div>
-        <div class="client-filter editor-filter dir-only" id="editor-filter"></div>
         <div id="active-list"></div>
       </div>
     </section>
 
     <!-- クライアント別 -->
     <section class="view" id="view-clients">
+      <!-- 期間で絞り込む（請求月で数える）：全期間／1か月ごと／期間を指定 -->
+      <div class="period-bar" id="period-bar">
+        <div class="segmented period-seg" id="period-mode">
+          <button type="button" data-period="all">全期間</button>
+          <button type="button" data-period="month">月ごと</button>
+          <button type="button" data-period="range">期間を指定</button>
+        </div>
+        <div class="month-nav period-month" id="period-month">
+          <button class="ghost" data-period-shift="-1" aria-label="前の月">‹</button>
+          <h2 id="period-label"></h2>
+          <button class="ghost" data-period-shift="1" aria-label="次の月">›</button>
+          <button class="ghost small" id="period-today">今月</button>
+        </div>
+        <div class="period-range" id="period-range">
+          <input type="month" id="period-from" aria-label="この月から">
+          <span>〜</span>
+          <input type="month" id="period-to" aria-label="この月まで">
+        </div>
+        <span class="muted period-note">請求月で数えます</span>
+      </div>
       <div class="client-filter" id="client-filter"></div>
       <div id="client-groups"></div>
     </section>
@@ -220,6 +235,10 @@
 
     <!-- 請求 -->
     <section class="view" id="view-billing">
+      <!-- 請求書のファイル名の決まり（押すと別の画面で設定） -->
+      <button class="card set-link rules-link" id="btn-open-rules">
+        <span class="set-text">請求書のファイル名<small id="rules-link-text"></small></span><span class="chev">›</span>
+      </button>
       <div class="view-head">
         <div class="month-nav">
           <button class="ghost" data-bill-shift="-1" aria-label="前の月">‹</button>
@@ -231,22 +250,29 @@
       </div>
       <div id="billing"></div>
 
-      <!-- 請求書のファイル名の決まり（PDF・CSV で保存するときの名前）。入れたらその場で保存 -->
-      <section class="card name-rules" id="name-rules">
-        <h3>請求書のファイル名の決まり</h3>
-        <p class="set-help">下のボタンで要素を入れて、順番や区切りの文字は自由に書き換えられます。PDF・CSV で保存するときの名前になります。</p>
-        <div class="rule-block">
-          <label for="rule-month">クライアント別（月末まとめ）</label>
-          <input id="rule-month" class="rule-input" data-rule="month" autocomplete="off" spellcheck="false">
-          <div class="rule-preview">例：<span id="rule-month-preview"></span></div>
+    </section>
+
+    <!-- ディレクター（担当状況・編集者ごとの委託費と純利益・委託先の編集者） -->
+    <section class="view" id="view-director">
+      <div class="view-head">
+        <div class="month-nav">
+          <button class="ghost" data-dir-shift="-1" aria-label="前の月">‹</button>
+          <h2 id="dir-label"></h2>
+          <button class="ghost" data-dir-shift="1" aria-label="次の月">›</button>
+          <button class="ghost small" id="dir-today">今月</button>
         </div>
-        <div class="rule-block">
-          <label for="rule-project">案件別（単発）</label>
-          <input id="rule-project" class="rule-input" data-rule="project" autocomplete="off" spellcheck="false">
-          <div class="rule-preview">例：<span id="rule-project-preview"></span></div>
-        </div>
-        <div class="rule-tokens" id="rule-tokens" aria-label="要素を入れる（最後に選んだ欄の、文字を打っている位置に入ります）"></div>
-        <button type="button" class="ghost small" id="rule-reset">元の決まりに戻す</button>
+        <button class="ghost" id="btn-copy-director">表をコピー</button>
+      </div>
+      <div id="director"></div>
+
+      <h3 class="section-title">委託先の編集者</h3>
+      <section class="card editor-reg">
+        <p class="set-help">登録しておくと、案件の入力画面の「担当編集者」でボタンから選べます。</p>
+        <div class="editor-list" id="editor-list"></div>
+        <form class="editor-add" id="editor-add-form" autocomplete="off">
+          <input id="editor-add-name" placeholder="編集者の名前">
+          <button type="submit" class="primary">登録</button>
+        </form>
       </section>
     </section>
 
@@ -410,24 +436,6 @@
       </section>
 
       <section class="card set-section">
-        <h3>ディレクター機能</h3>
-        <button class="set-row set-switch" id="btn-director" role="switch" aria-checked="false">
-          <span class="set-text">担当編集者・委託費・純利益を表示<small>案件に担当編集者と委託単価を入れ、請求タブで編集者ごとの委託費と純利益を見られます。ヘッダーのカチンコのボタンでも切り替えられます</small></span>
-          <span class="switch-state" id="director-state">オフ</span>
-          <span class="switch" aria-hidden="true"><span class="switch-knob"></span></span>
-        </button>
-        <!-- 委託先の編集者（オンのときだけ）。登録すると案件の入力画面でボタンから選べる -->
-        <div class="editor-reg dir-only">
-          <div class="set-text">委託先の編集者<small>登録しておくと、案件の入力画面の「担当編集者」でボタンから選べます</small></div>
-          <div class="editor-list" id="editor-list"></div>
-          <form class="editor-add" id="editor-add-form" autocomplete="off">
-            <input id="editor-add-name" placeholder="編集者の名前">
-            <button type="submit" class="primary">登録</button>
-          </form>
-        </div>
-      </section>
-
-      <section class="card set-section">
         <h3>同期</h3>
         <div class="set-row">
           <div class="set-text">Google ドライブ同期<small id="set-sync-text">ヘッダーの「同期を設定」から始められます</small></div>
@@ -443,6 +451,44 @@
       </section>
 
       <p class="set-version muted">案件管理 <span id="set-version"></span></p>
+    </div>
+  </section>
+
+  <!-- 請求書のファイル名（請求タブの一番上のボタンから開く。入れたらその場で保存） -->
+  <section class="page-view" id="rules-view" aria-label="請求書のファイル名">
+    <div class="page-bar">
+      <button class="ghost" id="rules-close">← 戻る</button>
+      <h2>請求書のファイル名</h2>
+    </div>
+    <div class="page-body">
+      <section class="card set-section name-rules">
+        <h3>自分の名前・活動名</h3>
+        <p class="set-help">ファイル名の「自分の名前」「活動名」に入ります（自分の名前は請求書にも載ります）。</p>
+        <div class="rule-block">
+          <label for="rule-myname">自分の名前</label>
+          <input id="rule-myname" class="rule-input" autocomplete="off" placeholder="例：山田 太郎">
+        </div>
+        <div class="rule-block">
+          <label for="rule-activity">活動名</label>
+          <input id="rule-activity" class="rule-input" autocomplete="off" placeholder="例：〇〇編集室">
+        </div>
+      </section>
+      <section class="card set-section name-rules" id="name-rules">
+        <h3>ファイル名の決まり</h3>
+        <p class="set-help">下のボタンで要素を入れて、順番や区切りの文字は自由に書き換えられます。PDF・CSV で保存するときの名前になります。</p>
+        <div class="rule-block">
+          <label for="rule-month">クライアント別（月末まとめ）</label>
+          <input id="rule-month" class="rule-input" data-rule="month" autocomplete="off" spellcheck="false">
+          <div class="rule-preview">例：<span id="rule-month-preview"></span></div>
+        </div>
+        <div class="rule-block">
+          <label for="rule-project">案件別（単発）</label>
+          <input id="rule-project" class="rule-input" data-rule="project" autocomplete="off" spellcheck="false">
+          <div class="rule-preview">例：<span id="rule-project-preview"></span></div>
+        </div>
+        <div class="rule-tokens" id="rule-tokens" aria-label="要素を入れる（最後に選んだ欄の、文字を打っている位置に入ります）"></div>
+        <button type="button" class="ghost small" id="rule-reset">元の決まりに戻す</button>
+      </section>
     </div>
   </section>
 

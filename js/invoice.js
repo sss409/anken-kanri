@@ -143,6 +143,7 @@ const NAME_TOKENS = [
   ['クライアント', 'クライアント名'],
   ['宛名', '宛名＋様／御中'],
   ['自分の名前', '作業者名（請求書の自分の名前）'],
+  ['活動名', '自分の活動名（屋号など）'],
   ['動画名', '案件名（月末まとめは並べる）'],
   ['請求月', '請求月の月（例：11）'],
   ['年', '請求月の年（例：2026）'],
@@ -174,6 +175,7 @@ function nameValues(d) {
     クライアント: inv.client ?? '',
     宛名: `${d.to}${honorificOf(d)}`,
     自分の名前: d.myName || '自分の名前',
+    活動名: state.settings?.activityName ?? '',
     動画名: inv.mode === 'project' ? projectLabel(byId(inv.projectId)) : joinNames(ps.map((p) => p.title)),
     請求月: String(Number(inv.month.slice(5))),
     年: inv.month.slice(0, 4),
@@ -188,8 +190,24 @@ function invoiceFileName(d) {
   return applyNameRule(nameRules()[inv.mode === 'project' ? 'project' : 'month'], nameValues(d));
 }
 
-// 請求タブの「請求書のファイル名の決まり」
+// 請求タブの一番上のボタン（いまの決まりで付く名前の例を出す）。押すとファイル名の画面へ
 let lastRuleInput = 'rule-month';
+
+function renderRulesLink() {
+  $('rules-link-text').textContent = `例：${previewName('month')}.pdf（押すと決まり・自分の名前・活動名を変えられます）`;
+}
+
+function openRules() {
+  $('rule-myname').value = state.settings?.myName ?? '';
+  $('rule-activity').value = state.settings?.activityName ?? '';
+  renderNameRules();
+  openPage('rules-view');
+}
+
+function closeRules() {
+  closePage('rules-view');
+  renderAll();
+}
 
 function renderNameRules() {
   const rules = nameRules();
@@ -198,24 +216,33 @@ function renderNameRules() {
     if (document.activeElement !== input) input.value = rules[key];
   }
   $('rule-tokens').innerHTML = NAME_TOKENS
-    .filter(([k]) => k !== '担当編集者' || isDirector())
     .map(([k, tip]) => `<button type="button" class="chip-btn" data-rule-token="${k}" title="${esc(tip)}">＋ ${k}</button>`).join('');
   renderRulePreviews();
 }
 
-function renderRulePreviews() {
+function previewName(key, rule) {
   const m = state.billMonth;
   const sample = {
     クライアント: '〇〇チャンネル', 宛名: '〇〇チャンネル様', 自分の名前: state.settings?.myName || '自分の名前',
+    活動名: state.settings?.activityName || '活動名',
     動画名: '#12 雑談ショート', 請求月: String(Number(m.slice(5))), 年: m.slice(0, 4),
     発効日: monthEnd(m).replaceAll('-', ''), 種別: 'ショート', 担当編集者: '田中',
   };
+  return applyNameRule(rule || nameRules()[key], sample);
+}
+
+function renderRulePreviews() {
   for (const key of ['month', 'project']) {
-    $(`rule-${key}-preview`).textContent = `${applyNameRule($(`rule-${key}`).value || DEFAULT_NAME_RULES[key], sample)}.pdf`;
+    $(`rule-${key}-preview`).textContent = `${previewName(key, $(`rule-${key}`).value || DEFAULT_NAME_RULES[key])}.pdf`;
   }
 }
 
 function bindNameRules() {
+  $('btn-open-rules').addEventListener('click', openRules);
+  $('rules-close').addEventListener('click', closeRules);
+  // 自分の名前（請求書と同じ）・活動名。入れたらその場で保存
+  $('rule-myname').addEventListener('input', (e) => { updateSettings({ myName: e.target.value.trim() }); renderRulePreviews(); });
+  $('rule-activity').addEventListener('input', (e) => { updateSettings({ activityName: e.target.value.trim() }); renderRulePreviews(); });
   for (const key of ['month', 'project']) {
     const input = $(`rule-${key}`);
     input.addEventListener('focus', () => { lastRuleInput = input.id; });

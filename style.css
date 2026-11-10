@@ -414,7 +414,7 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
   /* タブは画面の下に固定 */
   .tabs {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
-    display: grid; grid-template-columns: repeat(6, 1fr); gap: 0;
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 0;
     background: var(--surface); border-top: 1px solid var(--border);
     padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
   }
@@ -830,3 +830,94 @@ body.sheet-open .fab, body.page-open .fab { display: none; }
 /* PDF を作るときの用紙（請求書の画面の裏に A4 の幅で置く） */
 .pdf-holder { position: fixed; left: 0; top: 0; z-index: -1; pointer-events: none; }
 .invoice-paper.pdf-render { width: 794px; max-width: none; box-shadow: none; margin: 0; }
+
+/* ---------- 請求タブ：一番上の「請求書のファイル名」 ---------- */
+
+.rules-link { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 14px; text-align: left; color: var(--text); }
+.rules-link:hover .set-text { color: var(--accent); }
+.rules-link .set-text small { overflow-wrap: anywhere; }
+.page-body .name-rules { margin-top: 0; }
+
+/* ---------- ディレクタータブ ---------- */
+
+.stat-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 4px; }
+.stat-tile { padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.stat-tile > span { font-size: 12px; color: var(--muted); font-weight: 600; }
+.stat-tile b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.stat-tile.profit b { color: var(--done); }
+.assign-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+.assign-card { padding: 10px 12px; }
+.assign-card header { display: flex; align-items: baseline; justify-content: space-between; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.assign-card ul { list-style: none; margin: 0; padding: 0; }
+.assign-item {
+  width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; padding: 8px 4px; border: none; border-radius: 0;
+  border-bottom: 1px solid var(--border); background: none; color: var(--text);
+}
+.assign-card li:last-child .assign-item { border-bottom: none; }
+.assign-item:hover { background: var(--surface-2); }
+.assign-item .due { min-width: 64px; font-size: 13px; }
+.assign-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13px; }
+.assign-item .num { font-size: 12px; white-space: nowrap; }
+#view-director .editor-reg { padding: 12px 16px; border-top: none; }
+#view-director .editor-reg .set-help { margin: 0; }
+
+@media (max-width: 860px) {
+  .stat-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .assign-grid { grid-template-columns: 1fr; }
+  .tabs button { font-size: 12px; padding: 12px 0; }
+}
+
+/* PC でも狭めの幅では、タブの間を詰めてヘッダーを 1 行に収める */
+@media (min-width: 861px) and (max-width: 1080px) {
+  .tabs button { padding: 8px 9px; font-size: 13px; }
+  .app-header h1 .version { display: none; }
+}
+
+/* ---------- 単価タブ：1 クライアント 1 枠（上の段が単価、下の段が担当・委託単価）＋色と並び ---------- */
+
+.price-row { grid-template-columns: 190px minmax(0, 1fr) 36px; align-items: start; padding: 12px 14px; }
+.price-row:first-child { border-top: none; }
+.pr-name { gap: 6px; }
+.pr-tools { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+button.tiny { padding: 1px 7px; font-size: 12px; line-height: 1.6; }
+button.tiny:disabled { opacity: .3; cursor: default; }
+.color-pick { display: inline-flex; width: 26px; height: 22px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); cursor: pointer; }
+.color-pick input { width: 40px; height: 34px; margin: -6px; border: none; padding: 0; cursor: pointer; background: none; }
+.pr-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 10px; }
+/* 担当編集者と委託単価は 2 段目に */
+.pr-fields > :nth-child(4) { grid-row: 2; grid-column: 1; }
+.pr-fields > :nth-child(5) { grid-row: 2; grid-column: 2; }
+.pr-fields > :nth-child(6) { grid-row: 2; grid-column: 3; }
+.pr-fields > :nth-child(7) { grid-row: 2; grid-column: 4; }
+.price-row .pr-label { display: block; }
+.price-row .pr-clear { margin-top: 18px; }
+
+/* ---------- クライアント別：期間 ---------- */
+
+.period-bar { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; margin-bottom: 12px; }
+.period-bar [hidden] { display: none !important; }
+.period-seg { grid-template-columns: repeat(3, auto); }
+.period-seg button { padding: 6px 14px; }
+.period-seg button.active { background: var(--accent-soft); color: var(--accent); }
+.period-range { display: flex; align-items: center; gap: 6px; }
+.period-range input {
+  border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; background: var(--surface); color: var(--text); font-size: 14px;
+}
+.period-note { font-size: 12px; }
+
+@media (max-width: 860px) {
+  .price-row { grid-template-columns: minmax(0, 1fr) 36px; }
+  .pr-name { grid-column: 1; flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .price-row .pr-clear { grid-column: 2; grid-row: 1; margin-top: 0; }
+  /* スマホは 3 列：単価 3 つ／担当編集者／委託単価 3 つ */
+  .pr-fields { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 6px; }
+  .pr-fields .pr-label { font-size: 10px; line-height: 1.3; min-height: 2.6em; display: flex; align-items: flex-end; }
+  .pr-fields > :nth-child(4) .pr-label { min-height: 0; }
+  .pr-fields .yen-input input { padding-left: 20px; padding-right: 4px; }
+  .pr-fields .yen-input::before { left: 7px; }
+  .pr-fields > * { grid-row: auto !important; grid-column: auto !important; }
+  .pr-fields > :nth-child(4) { grid-column: 1 / -1 !important; }
+  .period-bar { gap: 8px; }
+  .period-seg { width: 100%; grid-template-columns: repeat(3, 1fr); }
+  .period-note { display: none; }
+}

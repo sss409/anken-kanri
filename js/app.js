@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.13.0';
+const APP_VERSION = '0.14.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -12,9 +12,12 @@ const state = {
   settings: null,      // 請求書の設定 { myName, bank, note, addressees: { クライアント: 宛名 }, updatedAt }
   tab: 'list',
   clientFilter: '',    // クライアント別タブで絞り込むクライアント（空ならすべて）
+  // クライアント別タブの期間（請求月で数える）：all＝全期間、month＝1か月、range＝from〜to
+  period: { mode: 'all', month: monthOf(todayStr()), from: shiftMonth(monthOf(todayStr()), -2), to: monthOf(todayStr()) },
   editorFilter: null,  // 案件タブで絞り込む編集者（null＝すべて、''＝自分で編集する案件）
   editingId: null,
   calMonth: monthOf(todayStr()),
+  dirMonth: monthOf(todayStr()),
   billMonth: monthOf(todayStr()),
   showDoneOnCal: false,
 };
@@ -69,13 +72,25 @@ async function applyData(data) {
 }
 
 const byId = (id) => state.projects.find((p) => p.id === id);
-const clientNames = () => [...new Set(state.projects.map((p) => p.client))].sort((a, b) => a.localeCompare(b, 'ja'));
-const clientStyle = (name) => `--hue:${clientHue(name)}`;
+const clientNames = () => [...new Set(state.projects.map((p) => p.client))].sort(compareClients);
+// 色は単価タブで変えられる（決めていなければ名前から作る色）
+const clientHueOf = (name) => state.settings?.clientColors?.[name] ?? clientHue(name);
+const clientStyle = (name) => `--hue:${clientHueOf(name)}`;
+// 並びは単価タブで変えられる（決めていなければ名前順）
+function compareClients(a, b) {
+  const order = state.settings?.clientOrder ?? [];
+  const ia = order.indexOf(a);
+  const ib = order.indexOf(b);
+  if (ia !== ib) return (ia < 0 ? Infinity : ia) - (ib < 0 ? Infinity : ib);
+  return a.localeCompare(b, 'ja');
+}
+const hasClientOrder = () => (state.settings?.clientOrder ?? []).length > 0;
 
 // ---------- ディレクター機能（担当編集者・委託費・純利益） ----------
 
 // 設定に入れて同期する（PC で入れたらスマホでも出る）
-const isDirector = () => !!state.settings?.director;
+// ディレクターモードは標準（常にオン）。担当編集者・委託単価は入力画面に、委託費・純利益はディレクタータブにまとめる
+const isDirector = () => true;
 // 委託先の編集者：設定画面で登録した人＋案件に入っている人
 const registeredEditors = () => state.settings?.editors ?? [];
 const editorNames = () => [...new Set([...registeredEditors(), ...state.projects.map((p) => p.editor).filter(Boolean)])]
@@ -85,31 +100,11 @@ function pickClientNames() {
   const count = new Map();
   for (const p of state.projects) count.set(p.client, (count.get(p.client) ?? 0) + 1);
   for (const c of Object.keys(state.settings?.clientPrices ?? {})) if (!count.has(c)) count.set(c, 0);
-  return [...count.keys()].sort((a, b) => count.get(b) - count.get(a) || a.localeCompare(b, 'ja'));
+  // 並びを決めてあればその順、なければよく使う順
+  return [...count.keys()].sort(hasClientOrder() ? compareClients : (a, b) => count.get(b) - count.get(a) || a.localeCompare(b, 'ja'));
 }
 const SELF_LABEL = '自分';
 const editorLabel = (name) => name || SELF_LABEL;
-
-function toggleDirector() {
-  updateSettings({ director: !isDirector() });
-  renderAll();
-  if (settingsOpen()) renderEditorList();
-  showToast(isDirector() ? 'ディレクター機能をオンにしました（案件に担当編集者と委託単価を入れられます）' : 'ディレクター機能をオフにしました', null);
-}
-
-function applyDirectorMode() {
-  const on = isDirector();
-  document.body.classList.toggle('director', on);
-  $('btn-director').classList.toggle('on', on);
-  $('btn-director').setAttribute('aria-checked', String(on));
-  $('director-state').textContent = on ? 'オン' : 'オフ';
-  // ヘッダーのボタン：ライト・ダークと同じく押すたびに切り替え、オンの間は色が付く
-  const quick = $('btn-director-quick');
-  quick.classList.toggle('on', on);
-  quick.setAttribute('aria-pressed', String(on));
-  quick.title = on ? 'ディレクター機能：オン（押すとオフ）' : 'ディレクター機能：オフ（押すとオン。担当編集者・委託費・純利益を表示）';
-  quick.setAttribute('aria-label', quick.title);
-}
 
 function editorTag(p) {
   return isDirector() && p.editor ? `<span class="editor-tag" title="担当編集者">担当 ${esc(p.editor)}</span>` : '';
@@ -126,14 +121,14 @@ function setTab(tab) {
 }
 
 function renderAll() {
-  applyDirectorMode();
   renderClientOptions();
   if (state.tab === 'list') renderActiveList();
   if (state.tab === 'clients') renderClients();
   if (state.tab === 'calendar') renderCalendar();
-  if (state.tab === 'billing') { renderBilling(); renderNameRules(); }
+  if (state.tab === 'billing') { renderBilling(); renderRulesLink(); }
   if (state.tab === 'done') renderDoneList();
   if (state.tab === 'prices') renderPricesTab();
+  if (state.tab === 'director') renderDirector();
 }
 
 // ---------- 入力フォーム ----------
@@ -177,28 +172,49 @@ function lastProject(client, kind) {
 const lastPrice = (client, kind) => lastProject(client, kind)?.unitPrice;
 
 // クライアントの単価の設定（なければ undefined）
-const clientPrice = (client) => state.settings?.clientPrices?.[client];
-const FEE_KEY = { short: 'feeShort', long: 'feeLong' };
+// ロングは 1本あたり（long・feeLong）と 1分あたり（longMin・feeLongMin）の両方を持てる
+// 0.13.0 までの「ロング単価＋/分」の設定（longUnit: 'minute'）は 1分あたりとして読む
+function clientPrice(client) {
+  const cp = state.settings?.clientPrices?.[client];
+  if (!cp || cp.longUnit !== 'minute') return cp;
+  const { longUnit, ...rest } = cp;
+  return { ...rest, long: null, longMin: rest.longMin ?? cp.long, feeLong: null, feeLongMin: rest.feeLongMin ?? cp.feeLong };
+}
+const priceKeyOf = (kind, unit) => (kind === 'short' ? 'short' : unit === 'minute' ? 'longMin' : 'long');
+const feeKeyOf = (kind, unit) => (kind === 'short' ? 'feeShort' : unit === 'minute' ? 'feeLongMin' : 'feeLong');
+const unitOfProject = (p) => (p.kind === 'long' && p.priceUnit === 'minute' ? 'minute' : 'video');
 
-// 単価は「クライアントの単価」→「前回の単価」の順に入れる（ロングは単価の数え方も一緒に）
-function autoFillPrice() {
+// ロングの数え方の決め方：クライアントの単価が片方だけならそちら、両方・なしなら前回の案件と同じ（なければ 1本あたり）
+function defaultLongUnit(client, cp) {
+  const hasV = cp?.long != null;
+  const hasM = cp?.longMin != null;
+  if (hasV !== hasM) return hasM ? 'minute' : 'video';
+  const last = lastProject(client, 'long');
+  return last ? unitOfProject(last) : 'video';
+}
+
+// 単価は「クライアントの単価」→「前回の単価（同じ数え方）」の順に入れる
+// chooseUnit：ロングの数え方もクライアントの単価・前回の案件から決める（クライアント・種別を選んだとき）
+function autoFillPrice({ chooseUnit = false } = {}) {
   if (form.priceTouched && $('f-price').value !== '') return;
   const client = $('f-client').value.trim();
   const cp = clientPrice(client);
-  const set = cp?.[form.kind];
-  const last = lastProject(client, form.kind);
+  if (form.kind === 'long' && chooseUnit) setUnit(defaultLongUnit(client, cp));
+  const set = cp?.[priceKeyOf(form.kind, form.unit)];
+  const last = state.projects
+    .filter((p) => p.client === client && p.kind === form.kind && unitOfProject(p) === form.unit)
+    .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))[0];
   const price = set ?? last?.unitPrice;
   if (price != null) $('f-price').value = price;
-  if (form.kind === 'long') setUnit(set != null ? (cp.longUnit ?? 'video') : (last?.priceUnit ?? form.unit));
   $('f-price-src').textContent = set != null ? 'クライアントの単価' : price != null ? '前回の単価' : '';
   updateAmount();
 }
 
-// 同じ編集者・種別で最後に登録した委託単価
+// 同じ編集者・種別・数え方で最後に登録した委託単価
 function lastFee(editor, kind) {
   if (!editor) return undefined;
   const hits = state.projects
-    .filter((p) => p.editor === editor && p.kind === kind && p.feeUnit != null)
+    .filter((p) => p.editor === editor && p.kind === kind && p.feeUnit != null && unitOfProject(p) === (kind === 'long' ? form.unit : 'video'))
     .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
   return hits[0]?.feeUnit;
 }
@@ -208,7 +224,7 @@ function autoFillFee() {
   if (form.feeTouched && $('f-fee').value !== '') return;
   const editor = $('f-editor').value.trim();
   const cp = clientPrice($('f-client').value.trim());
-  const set = cp && editor && cp.editor === editor ? cp[FEE_KEY[form.kind]] : null;
+  const set = cp && editor && cp.editor === editor ? cp[feeKeyOf(form.kind, form.unit)] : null;
   $('f-fee').value = set ?? lastFee(editor, form.kind) ?? '';
   updateAmount();
 }
@@ -219,7 +235,7 @@ function onClientChosen() {
   const cp = clientPrice($('f-client').value.trim());
   if (cp?.editor) $('f-editor').value = cp.editor;
   form.priceTouched = false;
-  autoFillPrice();
+  autoFillPrice({ chooseUnit: true });
   form.feeTouched = false;
   autoFillFee();
 }
@@ -452,13 +468,15 @@ function bindForm() {
     const b = e.target.closest('button[data-kind]');
     if (!b) return;
     setKind(b.dataset.kind);
-    if (!state.editingId) { form.priceTouched = false; autoFillPrice(); form.feeTouched = false; autoFillFee(); }
+    if (!state.editingId) { form.priceTouched = false; autoFillPrice({ chooseUnit: true }); form.feeTouched = false; autoFillFee(); }
   });
   $('f-editor').addEventListener('change', () => { if (!state.editingId || $('f-fee').value === '') { form.feeTouched = false; autoFillFee(); } });
   $('f-fee').addEventListener('input', () => { form.feeTouched = true; updateAmount(); });
   $('f-unit').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-unit]');
-    if (b) setUnit(b.dataset.unit);
+    if (!b) return;
+    setUnit(b.dataset.unit);
+    if (!state.editingId) { form.priceTouched = false; autoFillPrice(); form.feeTouched = false; autoFillFee(); }
   });
   $('f-minutes').addEventListener('input', updateAmount);
   bindExtras();
@@ -507,7 +525,8 @@ function bindForm() {
   // Esc でも閉じる（単価の設定などのダイアログが開いているときはそちらが先に閉じる）
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return;
-    if (settingsOpen()) closeSettings();
+    if (pageOpen('rules-view')) closeRules();
+    else if (settingsOpen()) closeSettings();
     else if (document.body.classList.contains('sheet-open')) cancelForm();
   });
   $('btn-delete').addEventListener('click', async () => {
@@ -581,9 +600,6 @@ function projectRow(p, { mode }) {
         <small>${priceFormula(p)}</small>
         ${extrasOf(p).length ? `<small class="extra-line-sum" title="${esc(extrasOf(p).map((x) => `${x.name} ${yen(x.price)}×${x.qty}`).join('\n'))}">＋ 追加 ${yen(extrasAmountOf(p))}</small>` : ''}
         <b>${yen(amountOf(p))}</b>
-        ${isDirector() && (p.editor || p.feeUnit != null)
-    ? `<small class="fee-line" title="委託費（${yen(p.feeUnit ?? 0)}${isPerMinute(p) ? '/分' : ''} × ${isPerMinute(p) ? `${unitsOf(p)}分` : `${p.count}本`}）と利益">委託 ${yen(feeOf(p))}・利益 <span class="${amountOf(p) - feeOf(p) < 0 ? 'minus' : ''}">${yen(amountOf(p) - feeOf(p))}</span></small>`
-    : ''}
       </div>
       <div class="actions">
         ${actions}
@@ -597,25 +613,8 @@ function projectRow(p, { mode }) {
     </div>`;
 }
 
-// 進行中の案件を担当している編集者ごとに絞り込むボタン（ディレクター機能がオンで、担当編集者が入っている案件があるときだけ）
-function renderEditorFilter(active) {
-  const names = [...new Set(active.map((p) => p.editor).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
-  const hasSelf = active.some((p) => !p.editor);
-  if (!isDirector() || !names.length) {
-    state.editorFilter = null;
-    $('editor-filter').innerHTML = '';
-    return;
-  }
-  if (state.editorFilter != null && !(names.includes(state.editorFilter) || (state.editorFilter === '' && hasSelf))) state.editorFilter = null;
-  const count = (v) => active.filter((p) => v == null || (p.editor ?? '') === v).length;
-  const chips = [[null, 'すべて'], ...names.map((n) => [n, n]), ...(hasSelf ? [['', SELF_LABEL]] : [])];
-  $('editor-filter').innerHTML = '<span class="filter-label">担当</span>' + chips.map(([v, label]) =>
-    `<button class="filter-chip ${state.editorFilter === v ? 'active' : ''}" data-editor-filter="${v == null ? '*' : esc(v)}">${esc(label)} <small>${count(v)}</small></button>`).join('');
-}
-
 function renderActiveList() {
   const allActive = state.projects.filter((p) => p.status === 'active');
-  renderEditorFilter(allActive);
   const active = allActive
     .filter((p) => state.editorFilter == null || (p.editor ?? '') === state.editorFilter)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.startDate.localeCompare(b.startDate));
@@ -687,7 +686,56 @@ async function markUndone(id) {
 
 // ---------- クライアント別 ----------
 
+// 期間に入る案件か（請求月で数える）
+function inPeriod(p) {
+  const pr = state.period;
+  if (pr.mode === 'month') return p.billingMonth === pr.month;
+  if (pr.mode === 'range') {
+    const [from, to] = pr.from <= pr.to ? [pr.from, pr.to] : [pr.to, pr.from];
+    return p.billingMonth >= from && p.billingMonth <= to;
+  }
+  return true;
+}
+
+function periodLabel() {
+  const pr = state.period;
+  if (pr.mode === 'month') return monthLabel(pr.month);
+  if (pr.mode === 'range') return `${monthLabel(pr.from)}〜${monthLabel(pr.to)}`;
+  return '全期間';
+}
+
+function renderPeriodBar() {
+  const pr = state.period;
+  for (const b of $('period-mode').querySelectorAll('button')) b.classList.toggle('active', b.dataset.period === pr.mode);
+  $('period-month').hidden = pr.mode !== 'month';
+  $('period-range').hidden = pr.mode !== 'range';
+  $('period-label').textContent = monthLabel(pr.month);
+  $('period-from').value = pr.from;
+  $('period-to').value = pr.to;
+}
+
+function setPeriod(patch) {
+  state.period = { ...state.period, ...patch };
+  prefSet('clientPeriod', JSON.stringify(state.period));
+  renderClients();
+}
+
+function bindPeriod() {
+  try { Object.assign(state.period, JSON.parse(prefGet('clientPeriod', 'null')) ?? {}); } catch { /* 読めなければ全期間 */ }
+  $('period-mode').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-period]');
+    if (b) setPeriod({ mode: b.dataset.period });
+  });
+  document.querySelectorAll('[data-period-shift]').forEach((b) => b.addEventListener('click', () => {
+    setPeriod({ month: shiftMonth(state.period.month, Number(b.dataset.periodShift)) });
+  }));
+  $('period-today').addEventListener('click', () => setPeriod({ month: monthOf(todayStr()) }));
+  $('period-from').addEventListener('change', (e) => { if (e.target.value) setPeriod({ from: e.target.value }); });
+  $('period-to').addEventListener('change', (e) => { if (e.target.value) setPeriod({ to: e.target.value }); });
+}
+
 function renderClients() {
+  renderPeriodBar();
   const names = clientNames();
   if (state.clientFilter && !names.includes(state.clientFilter)) state.clientFilter = '';
   $('client-filter').innerHTML = [['', 'すべて'], ...names.map((n) => [n, n])].map(([v, label]) =>
@@ -699,11 +747,18 @@ function renderClients() {
     return;
   }
   const today = todayStr();
-  const bills = openBills();
-  const shown = state.clientFilter ? [state.clientFilter] : names;
+  const bills = openBills().filter((b) => inPeriod({ billingMonth: b.month }));
+  // 期間に案件のないクライアントは出さない（クライアントを選んでいるときは出す）
+  const shown = state.clientFilter ? [state.clientFilter]
+    : names.filter((c) => state.projects.some((p) => p.client === c && inPeriod(p)));
+  if (!shown.length) {
+    $('client-groups').innerHTML = `<p class="empty">${periodLabel()}が請求月の案件はありません。</p>`;
+    return;
+  }
 
   $('client-groups').innerHTML = shown.map((client) => {
-    const ps = state.projects.filter((p) => p.client === client);
+    const ps = state.projects.filter((p) => p.client === client && inPeriod(p));
+    const total = ps.reduce((s, p) => s + amountOf(p), 0);
     const byDue = (a, b) => a.dueDate.localeCompare(b.dueDate);
     const started = ps.filter((p) => p.status === 'active' && p.startDate <= today).sort(byDue);
     const upcoming = ps.filter((p) => p.status === 'active' && p.startDate > today).sort(byDue);
@@ -726,8 +781,7 @@ function renderClients() {
             <span>着手中 <b>${started.length}</b></span>
             ${upcoming.length ? `<span>着手前 <b>${upcoming.length}</b></span>` : ''}
             <span>完了 <b>${done.length}</b></span>
-            ${isDirector() && started.concat(upcoming).some((p) => p.editor)
-    ? `<span>担当 <b>${[...new Set(started.concat(upcoming).map((p) => editorLabel(p.editor ?? '')))].map(esc).join('・')}</b></span>` : ''}
+            ${state.period.mode !== 'all' ? `<span>${periodLabel()} <b>${yen(total)}</b></span>` : ''}
             ${unbilled ? `<span class="bill-state none">未請求 ${yen(unbilled)}</span>` : ''}
             ${waiting ? `<span class="bill-state wait">入金待ち ${yen(waiting)}</span>` : ''}
           </div>
@@ -862,7 +916,7 @@ function billingRows(ym) {
     if (p.status !== 'done') r.pending += 1;
     r.items.push(p);
   }
-  return [...rows.values()].sort((a, b) => b.total - a.total);
+  return [...rows.values()].sort(hasClientOrder() ? (a, b) => compareClients(a.client, b.client) : (a, b) => b.total - a.total);
 }
 
 // 請求月の案件を担当編集者ごとにまとめる（委託費の多い順、自分で編集した分は最後）
@@ -925,6 +979,85 @@ function editorTableHtml(ym) {
     </div>`;
 }
 
+// ディレクタータブ：その月の売上・委託費・純利益、編集者別・クライアント別、進行中の担当状況
+function renderDirector() {
+  const ym = state.dirMonth;
+  $('dir-label').textContent = monthLabel(ym);
+  renderEditorList();
+  const rows = billingRows(ym);
+  const sales = rows.reduce((s, r) => s + r.total, 0);
+  const fee = rows.reduce((s, r) => s + r.fee, 0);
+  const tiles = `
+    <div class="stat-tiles">
+      <div class="card stat-tile"><span>売上</span><b>${yen(sales)}</b></div>
+      <div class="card stat-tile"><span>委託費</span><b>${yen(fee)}</b></div>
+      <div class="card stat-tile profit"><span>純利益</span><b>${profitCell(sales - fee)}</b></div>
+      <div class="card stat-tile"><span>利益率</span><b>${rateOf(sales - fee, sales)}</b></div>
+    </div>`;
+  const clientTable = rows.length ? `
+    <h3 class="section-title">クライアント別（委託費・純利益）</h3>
+    <div class="card table-card">
+      <table class="bill-table">
+        <thead><tr><th>クライアント</th><th>請求額</th><th>委託費</th><th>純利益</th><th>利益率</th></tr></thead>
+        <tbody>
+          ${rows.map((r) => `
+            <tr style="${clientStyle(r.client)}">
+              <td class="name-col"><span class="client-chip">${esc(r.client)}</span></td>
+              <td class="num" data-label="請求額">${yen(r.total)}</td>
+              <td class="num" data-label="委託費">${r.fee ? yen(r.fee) : '<span class="muted">—</span>'}</td>
+              <td class="num total profit" data-label="純利益">${profitCell(r.total - r.fee)}</td>
+              <td class="num" data-label="利益率">${rateOf(r.total - r.fee, r.total)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : '';
+  $('director').innerHTML = (rows.length ? tiles + editorTableHtml(ym) + clientTable
+    : `<p class="empty">${monthLabel(ym)}が請求月の案件はありません。</p>`) + assignmentHtml();
+}
+
+// 進行中の案件を担当編集者ごとに（自分で編集する分は最後）
+function assignmentHtml() {
+  const active = state.projects.filter((p) => p.status === 'active').sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const groups = new Map();
+  for (const p of active) {
+    const k = p.editor ?? '';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(p);
+  }
+  const names = [...groups.keys()].sort((a, b) => (a === '') - (b === '') || a.localeCompare(b, 'ja'));
+  const head = `<h3 class="section-title">進行中の担当状況 <span class="muted">${active.length}件</span></h3>`;
+  if (!active.length) return head + '<p class="empty">進行中の案件はありません。</p>';
+  return head + `<div class="assign-grid">${names.map((n) => {
+    const list = groups.get(n);
+    return `
+      <section class="card assign-card">
+        <header><span class="editor-name ${n ? '' : 'self'}">${esc(editorLabel(n))}</span><span class="muted">${list.length}件</span></header>
+        <ul>${list.map((p) => {
+          const badge = dueBadge(p);
+          return `<li><button class="assign-item" data-edit="${p.id}" style="${clientStyle(p.client)}">
+            <span class="due ${badge.cls}">${shortDate(p.dueDate)}<small>${badge.text}</small></span>
+            <span class="assign-main"><span class="client-chip">${esc(p.client)}</span> ${esc(p.title) || '<span class="muted">（案件名なし）</span>'}${stageTag(p)}</span>
+            ${feeOf(p) ? `<span class="num muted">委託 ${yen(feeOf(p))}</span>` : ''}
+          </button></li>`;
+        }).join('')}</ul>
+      </section>`;
+  }).join('')}</div>`;
+}
+
+async function copyDirector() {
+  const ym = state.dirMonth;
+  const lines = [['クライアント', '請求額', '委託費', '純利益'].join('\t')];
+  for (const r of billingRows(ym)) lines.push([r.client, r.total, r.fee, r.total - r.fee].join('\t'));
+  lines.push('', ['編集者', '本数', '売上', '委託費', '純利益'].join('\t'));
+  for (const r of editorRows(ym)) lines.push([editorLabel(r.editor), r.count, r.sales, r.fee, r.sales - r.fee].join('\t'));
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    showToast(`${monthLabel(ym)}の委託費・純利益の表をコピーしました（Excelに貼り付けできます）`, null);
+  } catch {
+    showToast('コピーできませんでした', null);
+  }
+}
+
 function cell(x) {
   return x.count ? `<span class="cnt">${x.count}本</span>${yen(x.amount)}` : '<span class="muted">—</span>';
 }
@@ -943,17 +1076,11 @@ function renderBilling() {
     fee: s.fee + r.fee,
   }), { short: { count: 0, amount: 0 }, long: { count: 0, amount: 0 }, total: 0, fee: 0 });
 
-  // ディレクター機能がオンのときは、クライアントごとの委託費と純利益の列を足す
-  const dir = isDirector();
-  const dirCells = (r) => dir
-    ? `<td class="num" data-label="委託費">${r.fee ? yen(r.fee) : '<span class="muted">—</span>'}</td>
-       <td class="num profit" data-label="純利益">${profitCell(r.total - r.fee)}</td>`
-    : '';
-
+  // 委託費・純利益はディレクタータブに出す
   $('billing').innerHTML = `
     <div class="card table-card">
-      <table class="bill-table ${dir ? 'with-profit' : ''}">
-        <thead><tr><th>クライアント</th><th>ショート</th><th>ロング</th><th>請求額</th>${dir ? '<th>委託費</th><th>純利益</th>' : ''}<th class="status-col">請求書・振込</th></tr></thead>
+      <table class="bill-table">
+        <thead><tr><th>クライアント</th><th>ショート</th><th>ロング</th><th>請求額</th><th class="status-col">請求書・振込</th></tr></thead>
         <tbody>
           ${rows.map((r) => `
             <tr style="${clientStyle(r.client)}">
@@ -961,7 +1088,6 @@ function renderBilling() {
               <td class="num" data-label="ショート">${cell(r.short)}</td>
               <td class="num" data-label="ロング">${cell(r.long)}</td>
               <td class="num total" data-label="請求額">${yen(r.total)}</td>
-              ${dirCells(r)}
               <td class="status-col"><div class="status-pair">${statusButtons(state.billMonth, r.client)}</div></td>
             </tr>`).join('')}
         </tbody>
@@ -970,12 +1096,10 @@ function renderBilling() {
           <td class="num" data-label="ショート">${cell(sum.short)}</td>
           <td class="num" data-label="ロング">${cell(sum.long)}</td>
           <td class="num total" data-label="請求額">${yen(sum.total)}</td>
-          ${dirCells(sum)}
           <td class="status-col muted">${paidSummary(state.billMonth, rows)}</td>
         </tr></tfoot>
       </table>
     </div>
-    ${dir ? editorTableHtml(state.billMonth) : ''}
     <h3 class="section-title">内訳</h3>
     ${rows.map((r) => `
       <details class="card bill-detail" style="${clientStyle(r.client)}">
@@ -988,7 +1112,6 @@ function renderBilling() {
               ${editorTag(p)}
               <span class="muted">${p.status === 'done' ? '完了' : `納期 ${shortDate(p.dueDate)}`}</span>
               <span class="num">${priceFormula(p)}${extrasOf(p).length ? ` ＋ 追加 ${yen(extrasAmountOf(p))}` : ''} = <b>${yen(amountOf(p))}</b></span>
-              ${dir && feeOf(p) ? `<span class="num fee-line">委託 ${yen(feeOf(p))}</span>` : ''}
             </li>`).join('')}
         </ul>
       </details>`).join('')}
@@ -1025,16 +1148,11 @@ function openBillsHtml() {
 
 async function copyBilling() {
   const rows = billingRows(state.billMonth);
-  const dir = isDirector();
-  const lines = [['クライアント', 'ショート本数', 'ショート金額', 'ロング本数', 'ロング金額', '請求額', ...(dir ? ['委託費', '純利益'] : []), '請求書発行日', '入金確認日'].join('\t')];
+  // 委託費・純利益はディレクタータブの「表をコピー」で
+  const lines = [['クライアント', 'ショート本数', 'ショート金額', 'ロング本数', 'ロング金額', '請求額', '請求書発行日', '入金確認日'].join('\t')];
   for (const r of rows) {
     const inv = invoiceOf(state.billMonth, r.client);
-    lines.push([r.client, r.short.count, r.short.amount, r.long.count, r.long.amount, r.total, ...(dir ? [r.fee, r.total - r.fee] : []), inv.invoicedAt ?? '', inv.paidAt ?? ''].join('\t'));
-  }
-  // ディレクター機能がオンのときは、下に編集者別の表も付ける
-  if (dir && editorRows(state.billMonth).some((r) => r.editor)) {
-    lines.push('', ['編集者', '本数', '売上', '委託費', '純利益'].join('\t'));
-    for (const r of editorRows(state.billMonth)) lines.push([editorLabel(r.editor), r.count, r.sales, r.fee, r.sales - r.fee].join('\t'));
+    lines.push([r.client, r.short.count, r.short.amount, r.long.count, r.long.amount, r.total, inv.invoicedAt ?? '', inv.paidAt ?? ''].join('\t'));
   }
   try {
     await navigator.clipboard.writeText(lines.join('\n'));
@@ -1129,53 +1247,91 @@ function renderCalendar() {
 function setClientPrice(client, patch) {
   const all = { ...(state.settings?.clientPrices ?? {}) };
   if (patch === null) delete all[client];
-  else all[client] = { ...(all[client] ?? {}), ...patch };
+  else all[client] = { ...(clientPrice(client) ?? {}), ...patch };
   updateSettings({ clientPrices: all });
+}
+
+// クライアントの色（色相 0〜359）。null で名前から作る色に戻す
+function setClientColor(client, hue) {
+  const colors = { ...(state.settings?.clientColors ?? {}) };
+  if (hue == null) delete colors[client];
+  else colors[client] = hue;
+  updateSettings({ clientColors: colors });
+}
+
+// クライアントの並びを 1 つ上・下へ（いまの並び全体を保存する）
+function moveClient(client, delta) {
+  const list = priceClientNames();
+  const i = list.indexOf(client);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  updateSettings({ clientOrder: list });
+}
+
+// 色相 ⇔ 色の欄（#rrggbb）。画面の明るさに合わせるので色相だけを使う
+function hueToHex(h) {
+  const f = (n) => {
+    const k = (n + h / 30) % 12;
+    const c = 0.55 - 0.6 * Math.min(0.55, 1 - 0.55) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(c * 255).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+function hexToHue(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (!d) return 0;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return Math.round((h * 60 + 360) % 360);
 }
 
 // 一覧に出すクライアント：単価を決めてあるもの＋案件のあるもの（名前順）
 function priceClientNames() {
-  return [...new Set([...Object.keys(state.settings?.clientPrices ?? {}), ...clientNames()])].sort((a, b) => a.localeCompare(b, 'ja'));
+  return [...new Set([...Object.keys(state.settings?.clientPrices ?? {}), ...clientNames()])].sort(compareClients);
 }
 
-// 単価のページ：1 クライアント 1 行（PC は表、スマホはカード）
+// 単価タブ：1 クライアント 1 枠。上の段が単価（ショート・ロング 1本・ロング 1分）、下の段が担当編集者と委託単価
+// 左に色と並び（↑↓）
 function renderPriceList() {
   const names = priceClientNames();
-  const dir = isDirector();
   const yenInput = (cp, key, label, ph) => `
     <label class="pr-cell"><span class="pr-label">${label}</span>
       <span class="yen-input"><input type="number" min="0" step="100" inputmode="numeric" data-price-key="${key}" value="${cp[key] ?? ''}" placeholder="${ph ?? ''}"></span>
     </label>`;
-  const head = `
-    <div class="price-row price-head ${dir ? 'with-dir' : ''}">
-      <span>クライアント</span><span>ショート単価</span><span>ロング単価</span>
-      ${dir ? '<span>担当編集者</span><span>委託（ショート）</span><span>委託（ロング）</span>' : ''}<span></span>
-    </div>`;
-  $('price-list').innerHTML = names.length ? head + names.map((name) => {
+  const lastOf = (name, kind, unit) => state.projects
+    .filter((p) => p.client === name && p.kind === kind && unitOfProject(p) === unit)
+    .sort((x, y) => (y.createdAt ?? '').localeCompare(x.createdAt ?? ''))[0]?.unitPrice;
+  const ph = (v) => (v != null ? `前回 ${v}` : '未設定');
+  $('price-list').innerHTML = names.length ? names.map((name, i) => {
     const cp = clientPrice(name) ?? {};
-    const lastS = lastPrice(name, 'short');
-    const lastL = lastPrice(name, 'long');
     const count = state.projects.filter((p) => p.client === name).length;
-    const hasAny = ['short', 'long', 'editor', 'feeShort', 'feeLong'].some((k) => cp[k] != null && cp[k] !== '');
+    const hasAny = ['short', 'long', 'longMin', 'editor', 'feeShort', 'feeLong', 'feeLongMin'].some((k) => cp[k] != null && cp[k] !== '');
+    const customColor = state.settings?.clientColors?.[name] != null;
     return `
-      <div class="price-row ${dir ? 'with-dir' : ''}" data-price-client="${esc(name)}" style="${clientStyle(name)}">
-        <div class="pr-name"><span class="client-chip">${esc(name)}</span><small class="muted">${count ? `案件 ${count}件` : '案件なし'}</small></div>
-        ${yenInput(cp, 'short', 'ショート単価', lastS != null ? `前回 ${lastS}` : '未設定')}
-        <div class="pr-cell"><span class="pr-label">ロング単価</span>
-          <span class="unit-pair">
-            <span class="yen-input"><input type="number" min="0" step="100" inputmode="numeric" data-price-key="long" value="${cp.long ?? ''}" placeholder="${lastL != null ? `前回 ${lastL}` : '未設定'}" aria-label="ロング単価"></span>
-            <select data-price-key="longUnit" aria-label="ロングの単価の数え方" title="1本あたりか、1分あたり（尺）か">
-              <option value="video" ${cp.longUnit !== 'minute' ? 'selected' : ''}>/本</option>
-              <option value="minute" ${cp.longUnit === 'minute' ? 'selected' : ''}>/分</option>
-            </select>
-          </span>
+      <div class="price-row" data-price-client="${esc(name)}" style="${clientStyle(name)}">
+        <div class="pr-name">
+          <span class="client-chip">${esc(name)}</span>
+          <small class="muted">${count ? `案件 ${count}件` : '案件なし'}</small>
+          <div class="pr-tools">
+            <label class="color-pick" title="色を変える"><input type="color" data-client-color value="${hueToHex(clientHueOf(name))}" aria-label="${esc(name)}の色"></label>
+            ${customColor ? '<button type="button" class="ghost tiny" data-color-reset title="元の色に戻す">元の色</button>' : ''}
+            <button type="button" class="ghost tiny" data-move="-1" ${i === 0 ? 'disabled' : ''} aria-label="上へ" title="上へ">↑</button>
+            <button type="button" class="ghost tiny" data-move="1" ${i === names.length - 1 ? 'disabled' : ''} aria-label="下へ" title="下へ">↓</button>
+          </div>
         </div>
-        ${dir ? `
-        <label class="pr-cell"><span class="pr-label">担当編集者</span>
-          <input data-price-key="editor" list="editor-options" value="${esc(cp.editor ?? '')}" placeholder="決めない">
-        </label>
-        ${yenInput(cp, 'feeShort', '委託（ショート）')}
-        ${yenInput(cp, 'feeLong', '委託（ロング）')}` : ''}
+        <div class="pr-fields">
+          ${yenInput(cp, 'short', 'ショート（円/本）', ph(lastOf(name, 'short', 'video')))}
+          ${yenInput(cp, 'long', 'ロング（円/本）', ph(lastOf(name, 'long', 'video')))}
+          ${yenInput(cp, 'longMin', 'ロング（円/分）', ph(lastOf(name, 'long', 'minute')))}
+          <label class="pr-cell"><span class="pr-label">担当編集者</span>
+            <input data-price-key="editor" list="editor-options" value="${esc(cp.editor ?? '')}" placeholder="決めない">
+          </label>
+          ${yenInput(cp, 'feeShort', '委託 ショート（円/本）')}
+          ${yenInput(cp, 'feeLong', '委託 ロング（円/本）')}
+          ${yenInput(cp, 'feeLongMin', '委託 ロング（円/分）')}
+        </div>
         <button type="button" class="ghost icon-btn pr-clear" data-price-clear ${hasAny ? '' : 'disabled'}
           title="このクライアントの単価の設定を消す（案件は消えません）" aria-label="${esc(name)}の単価の設定を消す">✕</button>
       </div>`;
@@ -1224,13 +1380,42 @@ function bindPrices() {
     const client = input.closest('[data-price-client]').dataset.priceClient;
     const key = input.dataset.priceKey;
     const raw = input.value.trim();
-    const value = key === 'editor' || key === 'longUnit' ? raw : (raw === '' || !(Number(raw) >= 0) ? null : Number(raw));
+    const value = key === 'editor' ? raw : (raw === '' || !(Number(raw) >= 0) ? null : Number(raw));
     setClientPrice(client, { [key]: value });
-    if (key !== 'editor' && key !== 'longUnit' && raw !== '' && value === null) input.value = '';
+    if (key !== 'editor' && raw !== '' && value === null) input.value = '';
     input.closest('[data-price-client]').querySelector('[data-price-clear]').disabled = false;
     showToast(`「${client}」の単価を保存しました`, null);
   });
+  // 色：選んでいる間は枠の色だけ変え、決めたら保存して全体に反映
+  $('price-list').addEventListener('input', (e) => {
+    const c = e.target.closest('[data-client-color]');
+    if (c) c.closest('[data-price-client]').style.setProperty('--hue', hexToHue(c.value));
+  });
+  $('price-list').addEventListener('change', (e) => {
+    const c = e.target.closest('[data-client-color]');
+    if (!c) return;
+    const client = c.closest('[data-price-client]').dataset.priceClient;
+    setClientColor(client, hexToHue(c.value));
+    renderPriceList();
+    showToast(`「${client}」の色を変えました`, null);
+  });
   $('price-list').addEventListener('click', (e) => {
+    const mv = e.target.closest('[data-move]');
+    if (mv) {
+      const client = mv.closest('[data-price-client]').dataset.priceClient;
+      moveClient(client, Number(mv.dataset.move));
+      renderPriceList();
+      // 動かした行のボタンにそのまま続けて押せるように
+      const row = [...$('price-list').querySelectorAll('[data-price-client]')].find((r) => r.dataset.priceClient === client);
+      row?.querySelector(`[data-move="${mv.dataset.move}"]:not(:disabled)`)?.focus();
+      return;
+    }
+    if (e.target.closest('[data-color-reset]')) {
+      const client = e.target.closest('[data-price-client]').dataset.priceClient;
+      setClientColor(client, null);
+      renderPriceList();
+      return;
+    }
     const b = e.target.closest('[data-price-clear]');
     if (!b) return;
     const client = b.closest('[data-price-client]').dataset.priceClient;
@@ -1302,7 +1487,7 @@ function bindExtraItems() {
 
 const settingsOpen = () => pageOpen('settings-view');
 
-// 委託先の編集者（ディレクター機能）。登録すると入力画面の「担当編集者」でボタンから選べる
+// 委託先の編集者（ディレクタータブ）。登録すると入力画面の「担当編集者」でボタンから選べる
 function renderEditorList() {
   const list = registeredEditors();
   $('editor-list').innerHTML = list.length
@@ -1333,7 +1518,6 @@ function bindEditorList() {
 
 function openSettings() {
   $('set-version').textContent = `v${APP_VERSION}`;
-  renderEditorList();
   openPage('settings-view');
 }
 
@@ -1424,6 +1608,12 @@ function bindGlobal() {
     renderBilling();
   }));
   $('bill-today').addEventListener('click', () => { state.billMonth = monthOf(todayStr()); renderBilling(); });
+  document.querySelectorAll('[data-dir-shift]').forEach((b) => b.addEventListener('click', () => {
+    state.dirMonth = shiftMonth(state.dirMonth, Number(b.dataset.dirShift));
+    renderDirector();
+  }));
+  $('dir-today').addEventListener('click', () => { state.dirMonth = monthOf(todayStr()); renderDirector(); });
+  $('btn-copy-director').addEventListener('click', copyDirector);
   $('btn-copy-billing').addEventListener('click', copyBilling);
   $('toast-undo').addEventListener('click', async () => {
     const undo = undoAction;
@@ -1433,8 +1623,6 @@ function bindGlobal() {
   // 設定画面
   $('btn-settings').addEventListener('click', () => openSettings());
   $('settings-close').addEventListener('click', closeSettings);
-  $('btn-director').addEventListener('click', toggleDirector);
-  $('btn-director-quick').addEventListener('click', toggleDirector);
   $('btn-export').addEventListener('click', exportData);
   $('btn-import').addEventListener('click', () => $('import-file').click());
   $('import-file').addEventListener('change', async (e) => {
@@ -1508,6 +1696,7 @@ function renderSyncStatus(status, detail) {
 }
 
 async function init() {
+  document.body.classList.add('director');
   $('app-version').textContent = `v${APP_VERSION}`;
   applyTheme();
   state.showDoneOnCal = prefGet('calShowDone', '0') === '1';
@@ -1515,6 +1704,7 @@ async function init() {
   bindForm();
   bindInvoice();
   bindPrices();
+  bindPeriod();
   bindExtraItems();
   bindEditorList();
   resetForm();
@@ -1523,7 +1713,7 @@ async function init() {
   state.invoices = new Map((await loadInvoices()).map((r) => [r.key, r]));
   state.deleted = new Map((await loadDeleted()).map((d) => [d.id, d]));
   const tab = prefGet('tab', 'list');
-  setTab(['list', 'clients', 'calendar', 'billing', 'done', 'prices'].includes(tab) ? tab : 'list');
+  setTab(['list', 'clients', 'calendar', 'billing', 'done', 'prices', 'director'].includes(tab) ? tab : 'list');
   initSync({ getLocal: localData, applyMerged: applyData, onStatus: renderSyncStatus });
   // ホーム画面に追加したとき、電波がなくても開けるようにする（https か localhost のときだけ）
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
