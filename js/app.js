@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.10.0';
+const APP_VERSION = '0.11.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -83,6 +83,7 @@ const editorLabel = (name) => name || SELF_LABEL;
 function toggleDirector() {
   updateSettings({ director: !isDirector() });
   renderAll();
+  if (settingsOpen()) renderPriceList(); // 担当編集者・委託単価の欄を出し入れする
   showToast(isDirector() ? 'ディレクター機能をオンにしました（案件に担当編集者と委託単価を入れられます）' : 'ディレクター機能をオフにしました', null);
 }
 
@@ -358,7 +359,9 @@ function bindForm() {
   $('btn-add-project').addEventListener('click', openNewForm);
   // Esc でも閉じる（単価の設定などのダイアログが開いているときはそちらが先に閉じる）
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && document.body.classList.contains('sheet-open') && !document.querySelector('dialog[open]')) cancelForm();
+    if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+    if (settingsOpen()) closeSettings();
+    else if (document.body.classList.contains('sheet-open')) cancelForm();
   });
   $('btn-delete').addEventListener('click', async () => {
     const p = byId(state.editingId);
@@ -1018,22 +1021,16 @@ function renderPriceList() {
   }).join('') : '<p class="empty">まだクライアントがありません。下の欄から追加してください。</p>';
 }
 
-// focus を渡すと、そのクライアントの欄を出してショート単価に入れられる状態にする（まだ無ければ一覧に足す）
+// 設定画面の「クライアントの単価」を開く。focus を渡すと、そのクライアントの欄に入れられる状態にする（まだ無ければ一覧に足す）
 function openPrices(focus) {
   if (focus && !priceClientNames().includes(focus)) setClientPrice(focus, {});
-  renderPriceList();
-  if (!$('price-dialog').open) $('price-dialog').showModal();
-  if (focus) {
-    const card = [...$('price-list').querySelectorAll('[data-price-client]')].find((c) => c.dataset.priceClient === focus);
-    card?.scrollIntoView({ block: 'center' });
-    card?.querySelector('input')?.focus();
-  }
+  openSettings();
+  const card = focus && [...$('price-list').querySelectorAll('[data-price-client]')].find((c) => c.dataset.priceClient === focus);
+  (card || $('set-prices')).scrollIntoView({ block: card ? 'center' : 'start' });
+  card?.querySelector('input')?.focus();
 }
 
 function bindPrices() {
-  $('btn-prices').addEventListener('click', () => { $('menu').hidden = true; openPrices(); });
-  $('price-dialog-close').addEventListener('click', () => $('price-dialog').close());
-  $('price-dialog').addEventListener('click', (e) => { if (e.target === $('price-dialog')) $('price-dialog').close(); });
   // 入れたらその場で保存
   $('price-list').addEventListener('change', (e) => {
     const input = e.target.closest('[data-price-key]');
@@ -1062,11 +1059,26 @@ function bindPrices() {
     $('price-add-name').value = '';
     openPrices(name);
   });
-  // 閉じたら、入力中の案件（追加のとき）に新しい単価を入れ直す
-  $('price-dialog').addEventListener('close', () => {
-    renderAll();
-    if (document.body.classList.contains('sheet-open') && !state.editingId && $('f-client').value.trim()) onClientChosen();
-  });
+}
+
+// ---------- 設定画面（ヘッダーの歯車から開く。入れたらその場で保存） ----------
+
+const settingsOpen = () => document.body.classList.contains('settings-open');
+
+function openSettings() {
+  renderPriceList();
+  $('set-version').textContent = `v${APP_VERSION}`;
+  if (!settingsOpen()) {
+    document.body.classList.add('settings-open');
+    $('settings-view').scrollTop = 0;
+  }
+}
+
+function closeSettings() {
+  document.body.classList.remove('settings-open');
+  renderAll();
+  // 案件の入力中（追加のとき）に開いていたら、決め直した単価を入れ直す
+  if (document.body.classList.contains('sheet-open') && !state.editingId && $('f-client').value.trim()) onClientChosen();
 }
 
 // ---------- 書き出し・読み込み ----------
@@ -1157,33 +1169,31 @@ function bindGlobal() {
     hideToast();
     if (undo) await undo();
   });
-  // メニュー（書き出し・読み込み・同期の解除）
-  const closeMenu = () => { $('menu').hidden = true; };
-  $('btn-menu').addEventListener('click', (e) => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
-  document.addEventListener('click', (e) => { if (!e.target.closest('#menu')) closeMenu(); });
+  // 設定画面
+  $('btn-settings').addEventListener('click', () => openSettings());
+  $('settings-close').addEventListener('click', closeSettings);
   $('btn-director').addEventListener('click', toggleDirector);
   $('btn-director-quick').addEventListener('click', toggleDirector);
-  $('btn-export').addEventListener('click', () => { closeMenu(); exportData(); });
-  $('btn-import').addEventListener('click', () => { closeMenu(); $('import-file').click(); });
+  $('btn-export').addEventListener('click', exportData);
+  $('btn-import').addEventListener('click', () => $('import-file').click());
   $('import-file').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     e.target.value = '';
     if (file) await importData(file);
   });
   $('btn-sync').addEventListener('click', onSyncButton);
-  $('btn-data-info').addEventListener('click', () => { closeMenu(); $('data-info').showModal(); });
+  $('btn-data-info').addEventListener('click', () => $('data-info').showModal());
   $('data-info-close').addEventListener('click', () => $('data-info').close());
   // 外側（暗くなった所）を押しても閉じる
   $('data-info').addEventListener('click', (e) => { if (e.target === $('data-info')) $('data-info').close(); });
   $('btn-sync-stop').addEventListener('click', () => {
-    closeMenu();
     if (confirm('この端末の同期をやめます（データはこの端末とGoogleドライブの両方に残ります）')) stopSync();
   });
   $('theme-seg').addEventListener('click', (e) => {
     const b = e.target.closest('[data-theme-pref]');
     if (b) { prefSet('theme', b.dataset.themePref); applyTheme(); }
   });
-  // ヘッダーのボタンは押すたびにライト⇔ダーク（「自動」はメニューの中で選ぶ）
+  // ヘッダーのボタンは押すたびにライト⇔ダーク（「自動」は設定画面で選ぶ）
   $('btn-theme').addEventListener('click', () => {
     prefSet('theme', document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
     applyTheme();
@@ -1231,6 +1241,8 @@ function renderSyncStatus(status, detail) {
     : SYNC_LABEL[status];
   b.title = detail || (status === 'off' ? 'Googleドライブを使って、PCとスマホのデータをそろえます' : '押すと今すぐ同期します');
   $('btn-sync-stop').hidden = status === 'off' || !Sync.available;
+  $('set-sync-text').textContent = !Sync.available ? 'この開き方では使えません（公開ページから開くと使えます）'
+    : status === 'off' ? 'ヘッダーの「同期を設定」から始められます' : `同期しています（${b.textContent}）`;
   if (status === 'error' && detail) showToast(`同期できませんでした：${detail}`, null);
 }
 

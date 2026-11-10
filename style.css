@@ -211,14 +211,12 @@ body:not(.director) .dir-only { display: none !important; }
 .editor-name.self { color: var(--muted); }
 .small-note { font-size: 11px; margin-left: 8px; }
 /* 「⋯」メニューのオン・オフのスイッチ */
-.menu button.menu-switch { flex-direction: row; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); border-radius: 0; margin-bottom: 4px; }
-.menu-switch-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .switch-state { font-size: 12px; font-weight: 700; color: var(--muted); min-width: 2.5em; text-align: right; }
 .switch { position: relative; flex: none; width: 40px; height: 22px; border-radius: 999px; background: var(--border); transition: background .15s; }
 .switch-knob { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .15s; }
-.menu-switch.on .switch { background: var(--accent); }
-.menu-switch.on .switch-knob { transform: translateX(18px); }
-.menu-switch.on .switch-state { color: var(--accent); }
+.set-switch.on .switch { background: var(--accent); }
+.set-switch.on .switch-knob { transform: translateX(18px); }
+.set-switch.on .switch-state { color: var(--accent); }
 
 /* ヘッダーのディレクター機能ボタン（オンの間は色が付く） */
 .dir-btn { padding: 6px 9px; color: var(--muted); }
@@ -348,7 +346,7 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
 /* ---------- トースト ---------- */
 
 .toast {
-  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 20;
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
   display: flex; align-items: center; gap: 14px;
   background: #222831; color: #fff; padding: 10px 12px 10px 18px; border-radius: 10px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, .25); max-width: calc(100vw - 32px);
@@ -372,22 +370,12 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
 .theme-btn { padding: 6px 9px; color: var(--muted); }
 .theme-btn:hover { color: var(--accent); }
 .theme-btn svg { width: 18px; height: 18px; display: block; }
-.menu-wrap { position: relative; }
-.menu {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 240px;
-  display: flex; flex-direction: column; padding: 6px; box-shadow: 0 8px 28px rgba(0, 0, 0, .18);
-}
-.menu[hidden] { display: none; }
-.menu button { border: none; background: none; text-align: left; padding: 10px 12px; display: flex; flex-direction: column; font-weight: 600; }
-.menu button:hover { background: var(--surface-2); }
-.menu button small { font-weight: normal; color: var(--muted); font-size: 11px; }
-.menu button[hidden] { display: none; }
-.menu-theme { display: flex; align-items: center; gap: 10px; padding: 8px 12px 10px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
-.menu-theme > span { font-weight: 600; font-size: 13px; white-space: nowrap; }
-.theme-seg { flex: 1; grid-template-columns: repeat(3, 1fr); }
-.menu .theme-seg button { padding: 6px 4px; text-align: center; display: block; font-size: 12px; }
+.settings-btn { padding: 6px 9px; color: var(--muted); }
+.settings-btn:hover { color: var(--accent); }
+.settings-btn svg { width: 18px; height: 18px; display: block; }
+.theme-seg { grid-template-columns: repeat(3, 1fr); min-width: 210px; }
+.theme-seg button { padding: 7px 4px; text-align: center; font-size: 13px; }
 .theme-seg button.active { background: var(--accent-soft); color: var(--accent); }
-#btn-sync-stop { color: var(--danger); border-top: 1px solid var(--border); border-radius: 0 0 8px 8px; }
 
 .form-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .form-head h2 { font-size: 18px; }
@@ -650,7 +638,6 @@ body.invoice-viewing .iv-form { display: none; }
 
 /* ---------- クライアントの単価 ---------- */
 
-.price-help { font-size: 12px; margin: 12px 0; line-height: 1.6; }
 .price-card {
   border: 1px solid var(--border); border-left: 4px solid hsl(var(--hue) 60% 55%); border-radius: var(--radius);
   padding: 10px 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 8px; background: var(--surface-2);
@@ -666,3 +653,30 @@ body.invoice-viewing .iv-form { display: none; }
 .price-add input { flex: 1; }
 .price-add button { white-space: nowrap; }
 .price-btn { margin-left: auto; color: var(--accent); }
+
+/* ---------- 設定画面（ヘッダーの歯車から開く全面の画面） ---------- */
+
+.settings-view { display: none; }
+body.settings-open { overflow: hidden; }
+body.settings-open .settings-view {
+  display: block; position: fixed; inset: 0; z-index: 45; overflow-y: auto; background: var(--bg);
+}
+body.settings-open .fab { display: none; }
+.settings-body {
+  max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px;
+  padding: 20px 16px calc(32px + env(safe-area-inset-bottom));
+}
+.set-section { padding: 14px 16px; }
+.set-section h3 { font-size: 14px; margin: 0 0 6px; padding-left: 8px; border-left: 3px solid var(--accent); }
+.set-help { font-size: 12px; color: var(--muted); margin: 0 0 10px; line-height: 1.6; }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 0; flex-wrap: wrap; }
+.set-row + .set-row { border-top: 1px solid var(--border); }
+.set-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 220px; min-width: 0; font-weight: 600; text-align: left; }
+.set-text small { font-weight: normal; color: var(--muted); font-size: 12px; line-height: 1.5; }
+button.set-row { width: 100%; border: none; background: none; border-radius: 0; color: var(--text); flex-wrap: nowrap; }
+button.set-row:hover { background: none; }
+button.set-link:hover .set-text { color: var(--accent); }
+.set-link .chev { font-size: 20px; color: var(--muted); line-height: 1; }
+.danger-text { color: var(--danger); border-color: var(--danger); }
+.set-version { text-align: center; font-size: 12px; margin: 4px 0 0; }
+.settings-view .iv-bar h2 { flex: 1; }
