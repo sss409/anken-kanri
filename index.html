@@ -23,7 +23,7 @@
 </head>
 <body>
   <header class="app-header">
-    <h1>案件管理 <span class="version" id="app-version"></span></h1>
+    <h1>案件管理 <span class="version" id="app-version"></span><span class="dir-badge dir-only" title="ディレクター機能がオンです（「⋯」メニューで切り替え）">ディレクター</span></h1>
     <nav class="tabs" id="tabs">
       <button data-tab="list">案件</button>
       <button data-tab="clients"><span class="label-long">クライアント別</span><span class="label-short">顧客別</span></button>
@@ -45,7 +45,12 @@
               <button data-theme-pref="dark">ダーク</button>
             </div>
           </div>
-          <button id="btn-director">ディレクター機能<small id="btn-director-sub">担当編集者・委託費・純利益を表示</small></button>
+          <!-- 押すたびにオン・オフ（メニューは開いたままにして、切り替わったのが見えるようにする） -->
+          <button class="menu-switch" id="btn-director" role="switch" aria-checked="false">
+            <span class="menu-switch-text">ディレクター機能<small>担当・委託費・純利益を表示</small></span>
+            <span class="switch-state" id="director-state">オフ</span>
+            <span class="switch" aria-hidden="true"><span class="switch-knob"></span></span>
+          </button>
           <button id="btn-export">書き出し<small>全データをJSONファイルに保存</small></button>
           <button id="btn-import">読み込み<small>JSONファイルの内容で置き換え</small></button>
           <button id="btn-data-info">データの扱いについて<small>保存場所・同期・消し方</small></button>

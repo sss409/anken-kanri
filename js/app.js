@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.9.0';
+const APP_VERSION = '0.9.1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -90,7 +90,8 @@ function applyDirectorMode() {
   const on = isDirector();
   document.body.classList.toggle('director', on);
   $('btn-director').classList.toggle('on', on);
-  $('btn-director').firstChild.textContent = `ディレクター機能：${on ? 'オン' : 'オフ'}`;
+  $('btn-director').setAttribute('aria-checked', String(on));
+  $('director-state').textContent = on ? 'オン' : 'オフ';
 }
 
 function editorTag(p) {
@@ -1014,7 +1015,7 @@ function bindGlobal() {
   const closeMenu = () => { $('menu').hidden = true; };
   $('btn-menu').addEventListener('click', (e) => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
   document.addEventListener('click', (e) => { if (!e.target.closest('#menu')) closeMenu(); });
-  $('btn-director').addEventListener('click', () => { closeMenu(); toggleDirector(); });
+  $('btn-director').addEventListener('click', toggleDirector);
   $('btn-export').addEventListener('click', () => { closeMenu(); exportData(); });
   $('btn-import').addEventListener('click', () => { closeMenu(); $('import-file').click(); });
   $('import-file').addEventListener('change', async (e) => {
