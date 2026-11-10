@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.14.0';
+const APP_VERSION = '0.15.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -85,6 +85,70 @@ function compareClients(a, b) {
   return a.localeCompare(b, 'ja');
 }
 const hasClientOrder = () => (state.settings?.clientOrder ?? []).length > 0;
+
+// ---------- クライアントのアイコン（YouTube・X のリンクから取る） ----------
+// リンクは settings.clientLinks、取ったアイコンは小さくして settings.clientIcons に入れる（同期され、圏外でも出る）
+const clientLinks = (name) => state.settings?.clientLinks?.[name] ?? {};
+const clientIconSrc = (name) => state.settings?.clientIcons?.[name]?.src ?? '';
+const clientIconHtml = (name, cls = '') => (clientIconSrc(name)
+  ? `<img class="client-icon ${cls}" src="${clientIconSrc(name)}" alt="" loading="lazy">` : '');
+
+// リンクからアカウントを読む。読めなければ null
+// YouTube：youtube.com/@名前・/channel/UC…・/c/名前・/user/名前（「@名前」だけでも可）
+// X：x.com/名前・twitter.com/名前（「@名前」だけは YouTube と区別できないので不可）
+function parseSocial(type, raw) {
+  const text = (raw ?? '').trim();
+  if (!text) return null;
+  if (type === 'youtube' && /^@[^\s/?#]+$/.test(text)) return text;
+  let url;
+  try { url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`); } catch { return null; }
+  const host = url.hostname.replace(/^(www|m)\./, '');
+  const parts = url.pathname.split('/').filter(Boolean);
+  if (type === 'youtube' && /(^|\.)youtube\.com$/.test(host) && parts.length) {
+    if (parts[0].startsWith('@')) return decodeURIComponent(parts[0]);
+    if (['channel', 'c', 'user'].includes(parts[0]) && parts[1]) return decodeURIComponent(parts[1]);
+  }
+  if (type === 'x' && /^(x|twitter)\.com$/.test(host) && parts.length
+    && !['home', 'i', 'intent', 'search', 'explore', 'hashtag', 'share'].includes(parts[0])) return parts[0].replace(/^@/, '');
+  return null;
+}
+
+// unavatar.io でアイコンを取り、96px の四角に切り抜いて JPEG の文字列にする（見つからなければ例外）
+async function fetchIcon(type, id) {
+  const res = await fetch(`https://unavatar.io/${type}/${encodeURIComponent(id)}?fallback=false`);
+  if (!res.ok) throw new Error(res.status === 404 ? 'アカウントが見つかりませんでした' : `取得できませんでした（${res.status}）`);
+  const bitmap = await createImageBitmap(await res.blob());
+  const size = 96;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const side = Math.min(bitmap.width, bitmap.height);
+  canvas.getContext('2d').drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+  return canvas.toDataURL('image/jpeg', 0.85);
+}
+
+// リンクを保存して、アイコンを取り直す（YouTube を先に、取れなければ X）
+async function updateClientIcon(name) {
+  const links = clientLinks(name);
+  const tries = [['youtube', parseSocial('youtube', links.youtube)], ['x', parseSocial('x', links.x)]].filter(([, id]) => id);
+  const icons = { ...(state.settings?.clientIcons ?? {}) };
+  if (!tries.length) {
+    delete icons[name];
+    updateSettings({ clientIcons: icons });
+    return { ok: true, cleared: true };
+  }
+  let lastError = null;
+  for (const [type, id] of tries) {
+    try {
+      const src = await fetchIcon(type, id);
+      updateSettings({ clientIcons: { ...(state.settings?.clientIcons ?? {}), [name]: { src, from: type, at: nowIso() } } });
+      return { ok: true, from: type };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  return { ok: false, error: lastError?.message ?? '取得できませんでした' };
+}
 
 // ---------- ディレクター機能（担当編集者・委託費・純利益） ----------
 
@@ -543,7 +607,7 @@ function bindForm() {
 function renderPickChips() {
   const cur = $('f-client').value.trim();
   $('f-client-chips').innerHTML = pickClientNames().slice(0, 12).map((n) =>
-    `<button type="button" class="chip-btn pick ${n === cur ? 'on' : ''}" data-pick-client="${esc(n)}" style="${clientStyle(n)}">${esc(n)}</button>`).join('');
+    `<button type="button" class="chip-btn pick ${n === cur ? 'on' : ''}" data-pick-client="${esc(n)}" style="${clientStyle(n)}">${clientIconHtml(n, 'small')}${esc(n)}</button>`).join('');
   const ed = $('f-editor').value.trim();
   const eds = [...registeredEditors(), ...editorNames().filter((n) => !registeredEditors().includes(n))];
   $('f-editor-chips').innerHTML = eds.length
@@ -776,7 +840,7 @@ function renderClients() {
     return `
       <section class="card client-group" style="${clientStyle(client)}">
         <header class="client-group-head">
-          <span class="client-chip big">${esc(client)}</span>
+          ${clientIconHtml(client, 'big')}<span class="client-chip big">${esc(client)}</span>
           <div class="client-stats">
             <span>着手中 <b>${started.length}</b></span>
             ${upcoming.length ? `<span>着手前 <b>${upcoming.length}</b></span>` : ''}
@@ -1312,7 +1376,7 @@ function renderPriceList() {
     return `
       <div class="price-row" data-price-client="${esc(name)}" style="${clientStyle(name)}">
         <div class="pr-name">
-          <span class="client-chip">${esc(name)}</span>
+          <span class="pr-title">${clientIconHtml(name) || `<span class="client-icon noimg" title="YouTube か X のリンクを入れるとアイコンが出ます">${esc([...name][0] ?? '')}</span>`}<span class="client-chip">${esc(name)}</span></span>
           <small class="muted">${count ? `案件 ${count}件` : '案件なし'}</small>
           <div class="pr-tools">
             <label class="color-pick" title="色を変える"><input type="color" data-client-color value="${hueToHex(clientHueOf(name))}" aria-label="${esc(name)}の色"></label>
@@ -1331,6 +1395,12 @@ function renderPriceList() {
           ${yenInput(cp, 'feeShort', '委託 ショート（円/本）')}
           ${yenInput(cp, 'feeLong', '委託 ロング（円/本）')}
           ${yenInput(cp, 'feeLongMin', '委託 ロング（円/分）')}
+          <label class="pr-cell pr-link"><span class="pr-label">YouTube のリンク</span>
+            <input type="url" inputmode="url" data-link-key="youtube" value="${esc(clientLinks(name).youtube ?? '')}" placeholder="https://www.youtube.com/@…">
+          </label>
+          <label class="pr-cell pr-link"><span class="pr-label">X のリンク</span>
+            <input type="url" inputmode="url" data-link-key="x" value="${esc(clientLinks(name).x ?? '')}" placeholder="https://x.com/…">
+          </label>
         </div>
         <button type="button" class="ghost icon-btn pr-clear" data-price-clear ${hasAny ? '' : 'disabled'}
           title="このクライアントの単価の設定を消す（案件は消えません）" aria-label="${esc(name)}の単価の設定を消す">✕</button>
@@ -1386,6 +1456,30 @@ function bindPrices() {
     input.closest('[data-price-client]').querySelector('[data-price-clear]').disabled = false;
     showToast(`「${client}」の単価を保存しました`, null);
   });
+  // YouTube・X のリンク：入れたら保存して、アイコンを取り直す
+  $('price-list').addEventListener('change', async (e) => {
+    const input = e.target.closest('[data-link-key]');
+    if (!input) return;
+    const name = input.closest('[data-price-client]').dataset.priceClient;
+    const key = input.dataset.linkKey;
+    const value = input.value.trim();
+    if (value && !parseSocial(key, value)) {
+      showToast(key === 'youtube'
+        ? 'YouTube のチャンネルのリンク（youtube.com/@… など）を入れてください'
+        : 'X のアカウントのリンク（x.com/… など）を入れてください', null);
+      return;
+    }
+    const links = { ...(state.settings?.clientLinks ?? {}) };
+    links[name] = { ...(links[name] ?? {}), [key]: value };
+    updateSettings({ clientLinks: links });
+    showToast('アイコンを取得しています…', null);
+    const r = await updateClientIcon(name);
+    renderPriceList();
+    showToast(r.cleared ? `「${name}」のアイコンを外しました`
+      : r.ok ? `「${name}」のアイコンを${r.from === 'youtube' ? 'YouTube' : 'X'}から取得しました`
+        : `「${name}」のアイコンを取得できませんでした：${r.error}`, null);
+  });
+
   // 色：選んでいる間は枠の色だけ変え、決めたら保存して全体に反映
   $('price-list').addEventListener('input', (e) => {
     const c = e.target.closest('[data-client-color]');
