@@ -212,16 +212,13 @@ body:not(.director) .dir-only { display: none !important; }
 .menu-switch.on .switch-knob { transform: translateX(18px); }
 .menu-switch.on .switch-state { color: var(--accent); }
 
-/* オンの間はヘッダーに印を出す */
-.dir-badge {
-  display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; vertical-align: 2px;
-  font-size: 11px; font-weight: 700; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent);
-}
-/* スマホでは印のぶん、版の表示を隠してヘッダーのボタンがはみ出さないようにする */
-@media (max-width: 480px) {
-  body.director .app-header .version { display: none; }
-  .dir-badge { margin-left: 6px; padding: 1px 6px; }
-}
+/* ヘッダーのディレクター機能ボタン（オンの間は色が付く） */
+.dir-btn { padding: 6px 9px; color: var(--muted); }
+.dir-btn:hover { color: var(--accent); }
+.dir-btn svg { width: 18px; height: 18px; display: block; }
+.dir-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dir-btn.on:hover { color: #fff; filter: brightness(1.1); }
+.dir-btn.on svg path[stroke] { stroke: var(--accent); }
 
 .kind-tag { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
 .kind-tag.short { background: var(--short-soft); color: var(--short); }

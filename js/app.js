@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.9.1';
+const APP_VERSION = '0.9.2';
 
 const $ = (id) => document.getElementById(id);
 
@@ -92,6 +92,12 @@ function applyDirectorMode() {
   $('btn-director').classList.toggle('on', on);
   $('btn-director').setAttribute('aria-checked', String(on));
   $('director-state').textContent = on ? 'オン' : 'オフ';
+  // ヘッダーのボタン：ライト・ダークと同じく押すたびに切り替え、オンの間は色が付く
+  const quick = $('btn-director-quick');
+  quick.classList.toggle('on', on);
+  quick.setAttribute('aria-pressed', String(on));
+  quick.title = on ? 'ディレクター機能：オン（押すとオフ）' : 'ディレクター機能：オフ（押すとオン。担当編集者・委託費・純利益を表示）';
+  quick.setAttribute('aria-label', quick.title);
 }
 
 function editorTag(p) {
@@ -1016,6 +1022,7 @@ function bindGlobal() {
   $('btn-menu').addEventListener('click', (e) => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
   document.addEventListener('click', (e) => { if (!e.target.closest('#menu')) closeMenu(); });
   $('btn-director').addEventListener('click', toggleDirector);
+  $('btn-director-quick').addEventListener('click', toggleDirector);
   $('btn-export').addEventListener('click', () => { closeMenu(); exportData(); });
   $('btn-import').addEventListener('click', () => { closeMenu(); $('import-file').click(); });
   $('import-file').addEventListener('change', async (e) => {

@@ -23,7 +23,7 @@
 </head>
 <body>
   <header class="app-header">
-    <h1>案件管理 <span class="version" id="app-version"></span><span class="dir-badge dir-only" title="ディレクター機能がオンです（「⋯」メニューで切り替え）">ディレクター</span></h1>
+    <h1>案件管理 <span class="version" id="app-version"></span></h1>
     <nav class="tabs" id="tabs">
       <button data-tab="list">案件</button>
       <button data-tab="clients"><span class="label-long">クライアント別</span><span class="label-short">顧客別</span></button>
@@ -33,6 +33,11 @@
     </nav>
     <div class="header-tools">
       <button class="sync-btn" id="btn-sync" hidden></button>
+      <!-- ディレクター機能のオン・オフ（押すたびに切り替え。オンの間は色が付く） -->
+      <button class="ghost icon-btn dir-btn" id="btn-director-quick" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16v10a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19z" fill="currentColor"/>
+          <path d="M3.6 7.8 19 4.2l.6 2.4L4.2 10.2z" fill="currentColor"/><path d="M7.5 6.9 9.6 9.6M12 5.9l2.1 2.7M16.4 4.8l2.1 2.7" stroke="var(--surface)" stroke-width="1.6"/></svg>
+      </button>
       <button class="ghost icon-btn theme-btn" id="btn-theme"></button>
       <div class="menu-wrap">
         <button class="ghost icon-btn" id="btn-menu" aria-label="メニュー" title="メニュー">⋯</button>
