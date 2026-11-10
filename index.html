@@ -41,7 +41,20 @@
       <button class="ghost icon-btn theme-btn" id="btn-theme"></button>
       <!-- 設定はメニューではなく、別の画面（設定画面）で行う -->
       <button class="ghost icon-btn settings-btn" id="btn-settings" aria-label="設定" title="設定">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M10.3 2.5h3.4l.5 2.6c.6.2 1.2.5 1.7.9l2.5-.9 1.7 2.9-2 1.7c.1.6.1 1.3 0 1.9l2 1.7-1.7 2.9-2.5-.9c-.5.4-1.1.7-1.7.9l-.5 2.6h-3.4l-.5-2.6c-.6-.2-1.2-.5-1.7-.9l-2.5.9-1.7-2.9 2-1.7a6 6 0 0 1 0-1.9l-2-1.7 1.7-2.9 2.5.9c.5-.4 1.1-.7 1.7-.9zM12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z" transform="translate(0 0.5)"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <defs><mask id="gear-hole"><rect width="24" height="24" fill="#fff"/><circle cx="12" cy="12" r="3.1" fill="#000"/></mask></defs>
+          <g fill="currentColor" mask="url(#gear-hole)">
+            <circle cx="12" cy="12" r="7.2"/>
+            <rect x="10.2" y="1.6" width="3.6" height="5" rx="1"/>
+            <rect x="10.2" y="1.6" width="3.6" height="5" rx="1" transform="rotate(45 12 12)"/>
+            <rect x="10.2" y="1.6" width="3.6" height="5" rx="1" transform="rotate(90 12 12)"/>
+            <rect x="10.2" y="1.6" width="3.6" height="5" rx="1" transform="rotate(135 12 12)"/>
+            <rect x="10.2" y="1.6" width="3.6" height="5" rx="1" transform="rotate(180 12 12)"/>
+            <rect x="10.2" y="1.6" width="3.6" height="5" rx="1" transform="rotate(225 12 12)"/>
+            <rect x="10.2" y="1.6" width="3.6" height="5" rx="1" transform="rotate(270 12 12)"/>
+            <rect x="10.2" y="1.6" width="3.6" height="5" rx="1" transform="rotate(315 12 12)"/>
+          </g>
+        </svg>
       </button>
       <input type="file" id="import-file" accept=".json,application/json" hidden>
     </div>
@@ -50,81 +63,99 @@
   <main>
     <!-- 案件 -->
     <section class="view" id="view-list">
-      <form class="card project-form" id="project-form" autocomplete="off" novalidate>
-        <div class="form-head">
+      <!-- 案件の追加・編集（「＋ 案件を追加」「編集」で開く全面の画面） -->
+      <form class="project-form" id="project-form" autocomplete="off" novalidate>
+        <div class="page-bar">
+          <button type="button" class="ghost" id="btn-sheet-close">← 戻る</button>
           <h2 id="form-title">案件を追加</h2>
-          <button type="button" class="ghost icon-btn sheet-close" id="btn-sheet-close" aria-label="閉じる">✕</button>
         </div>
 
-        <label>クライアント
-          <input id="f-client" list="client-options" placeholder="例：〇〇チャンネル" required>
-          <datalist id="client-options"></datalist>
-        </label>
-
-        <label>案件名
-          <input id="f-title" placeholder="例：#12 雑談ショート">
-        </label>
-
-        <div class="field">
-          <span class="field-label">種別</span>
-          <div class="segmented" id="f-kind">
-            <button type="button" data-kind="short">ショート</button>
-            <button type="button" data-kind="long">ロング</button>
-          </div>
-        </div>
-
-        <div class="row2">
-          <label><span>単価（円） <small class="price-src" id="f-price-src"></small></span>
-            <input id="f-price" type="number" min="0" step="100" inputmode="numeric" required>
-          </label>
-          <label>本数
-            <input id="f-count" type="number" min="1" step="1" inputmode="numeric" required>
-          </label>
-        </div>
-        <div class="amount-preview">
-          <button type="button" class="link" id="f-open-prices" title="クライアントごとの単価を決めておくと、クライアントを選んだときに自動で入ります">クライアントの単価を設定</button>
-          <span>金額 <b id="f-amount">¥0</b></span>
-        </div>
-
-        <!-- ディレクター機能（設定画面・ヘッダーのボタンで切り替え）：担当してもらう編集者と委託費 -->
-        <fieldset class="dir-group dir-only">
-          <legend>担当編集者</legend>
-          <div class="row2">
-            <label>編集者
-              <input id="f-editor" list="editor-options" placeholder="空欄＝自分" title="空欄のときは自分で編集する案件として扱います">
-              <datalist id="editor-options"></datalist>
+        <div class="page-body">
+          <section class="card form-sec">
+            <h3>案件</h3>
+            <label>クライアント
+              <input id="f-client" list="client-options" placeholder="例：〇〇チャンネル" required>
+              <datalist id="client-options"></datalist>
             </label>
-            <label>委託単価（円）
-              <input id="f-fee" type="number" min="0" step="100" inputmode="numeric" placeholder="1本あたり">
+            <label>案件名
+              <input id="f-title" placeholder="例：#12 雑談ショート">
             </label>
-          </div>
-          <div class="dir-preview">委託費 <b id="f-fee-amount">¥0</b>　利益 <b id="f-profit">¥0</b></div>
-        </fieldset>
+            <div class="field">
+              <span class="field-label">種別</span>
+              <div class="segmented" id="f-kind">
+                <button type="button" data-kind="short">ショート</button>
+                <button type="button" data-kind="long">ロング</button>
+              </div>
+            </div>
+          </section>
 
-        <div class="row2">
-          <label>着手日
-            <input id="f-start" type="date" required>
-          </label>
-          <label>納期
-            <input id="f-due" type="date" required>
-          </label>
+          <section class="card form-sec">
+            <h3>金額</h3>
+            <div class="row2">
+              <label><span>単価（円） <small class="price-src" id="f-price-src"></small></span>
+                <input id="f-price" type="number" min="0" step="100" inputmode="numeric" required>
+              </label>
+              <label>本数
+                <input id="f-count" type="number" min="1" step="1" inputmode="numeric" required>
+              </label>
+            </div>
+            <div class="amount-preview">
+              <button type="button" class="link" id="f-open-prices" title="クライアントごとの単価を決めておくと、クライアントを選んだときに自動で入ります">クライアントの単価を決める</button>
+              <span>金額 <b id="f-amount">¥0</b></span>
+            </div>
+          </section>
+
+          <!-- ディレクター機能（設定画面・ヘッダーのボタンで切り替え）：担当してもらう編集者と委託費 -->
+          <section class="card form-sec dir-only">
+            <h3>担当編集者</h3>
+            <div class="row2">
+              <label>編集者
+                <input id="f-editor" list="editor-options" placeholder="空欄＝自分" title="空欄のときは自分で編集する案件として扱います">
+                <datalist id="editor-options"></datalist>
+              </label>
+              <label>委託単価（円）
+                <input id="f-fee" type="number" min="0" step="100" inputmode="numeric" placeholder="1本あたり">
+              </label>
+            </div>
+            <div class="dir-preview">委託費 <b id="f-fee-amount">¥0</b>　利益 <b id="f-profit">¥0</b></div>
+          </section>
+
+          <section class="card form-sec">
+            <h3>日程</h3>
+            <div class="row2">
+              <label>着手日
+                <input id="f-start" type="date" required>
+              </label>
+              <label>納期
+                <input id="f-due" type="date" required>
+              </label>
+            </div>
+            <!-- 納期をワンタップで（着手日から数える） -->
+            <div class="quick-dates" id="f-due-quick" aria-label="納期をすぐ決める">
+              <button type="button" data-due="3">3日後</button>
+              <button type="button" data-due="7">1週間後</button>
+              <button type="button" data-due="14">2週間後</button>
+              <button type="button" data-due="fri">次の金曜</button>
+              <button type="button" data-due="eom">月末</button>
+            </div>
+            <label><span>請求月 <small>（納期の月が自動で入ります）</small></span>
+              <input id="f-billing" type="month" required>
+            </label>
+          </section>
+
+          <section class="card form-sec">
+            <h3>メモ</h3>
+            <textarea id="f-memo" rows="2" aria-label="メモ" placeholder="素材の場所・修正の内容など"></textarea>
+          </section>
+
+          <p class="form-error" id="form-error"></p>
         </div>
 
-        <label>請求月 <small>（納期の月が自動で入ります）</small>
-          <input id="f-billing" type="month" required>
-        </label>
-
-        <label>メモ
-          <textarea id="f-memo" rows="2"></textarea>
-        </label>
-
-        <p class="form-error" id="form-error"></p>
-
-        <div class="form-actions">
-          <button type="submit" class="primary" id="btn-submit">追加</button>
-          <button type="button" class="ghost" id="btn-add-more" title="追加して、同じクライアントで次の案件を入れる">続けて追加</button>
-          <button type="button" class="ghost" id="btn-cancel" hidden>キャンセル</button>
+        <!-- いつでも押せるように、画面の下に固定 -->
+        <div class="page-actions">
           <button type="button" class="danger-link" id="btn-delete" hidden>削除</button>
+          <button type="button" class="ghost" id="btn-add-more" title="追加して、同じクライアントで次の案件を入れる">続けて追加</button>
+          <button type="submit" class="primary" id="btn-submit">追加</button>
         </div>
       </form>
 
@@ -290,12 +321,12 @@
   </section>
 
   <!-- 設定（ヘッダーの歯車から開く全面の画面。入れたらその場で保存） -->
-  <section class="settings-view" id="settings-view" aria-label="設定">
-    <div class="iv-bar">
+  <section class="page-view" id="settings-view" aria-label="設定">
+    <div class="page-bar">
       <button class="ghost" id="settings-close">← 戻る</button>
       <h2>設定</h2>
     </div>
-    <div class="settings-body">
+    <div class="page-body">
       <section class="card set-section">
         <h3>表示</h3>
         <div class="set-row">
@@ -317,14 +348,9 @@
         </button>
       </section>
 
-      <section class="card set-section" id="set-prices">
-        <h3>クライアントの単価</h3>
-        <p class="set-help">決めておくと、案件を追加するときにクライアントを選ぶだけで単価が入ります（空欄の種別は前回の案件の単価が入ります）。</p>
-        <div id="price-list"></div>
-        <form class="price-add" id="price-add-form" autocomplete="off">
-          <input id="price-add-name" list="client-options" placeholder="クライアント名">
-          <button type="submit" class="ghost">クライアントを追加</button>
-        </form>
+      <section class="card set-section">
+        <h3>案件の入力</h3>
+        <button class="set-row set-link" id="btn-open-prices"><span class="set-text">クライアントの単価<small id="set-prices-text">決めておくと、クライアントを選ぶだけで単価が入ります</small></span><span class="chev">›</span></button>
       </section>
 
       <section class="card set-section">
@@ -343,6 +369,22 @@
       </section>
 
       <p class="set-version muted">案件管理 <span id="set-version"></span></p>
+    </div>
+  </section>
+
+  <!-- クライアントの単価（設定画面・案件の入力画面・クライアント別から開く独立したページ。入れたらその場で保存） -->
+  <section class="page-view" id="prices-view" aria-label="クライアントの単価">
+    <div class="page-bar">
+      <button class="ghost" id="prices-close">← 戻る</button>
+      <h2>クライアントの単価</h2>
+    </div>
+    <div class="page-body wide">
+      <p class="page-help">決めておくと、案件を追加するときにクライアントを選ぶだけで単価が入ります。空欄の種別は前回の案件の単価が入ります（薄い文字が前回の単価）。入れた内容はすぐ保存され、同期もされます。</p>
+      <div class="card price-table" id="price-list"></div>
+      <form class="card price-add" id="price-add-form" autocomplete="off">
+        <input id="price-add-name" list="client-options" placeholder="新しいクライアント名">
+        <button type="submit" class="primary">＋ クライアントを追加</button>
+      </form>
     </div>
   </section>
 

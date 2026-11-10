@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.11.0';
+const APP_VERSION = '0.12.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -83,7 +83,7 @@ const editorLabel = (name) => name || SELF_LABEL;
 function toggleDirector() {
   updateSettings({ director: !isDirector() });
   renderAll();
-  if (settingsOpen()) renderPriceList(); // 担当編集者・委託単価の欄を出し入れする
+  if (pageOpen('prices-view')) renderPriceList(); // 担当編集者・委託単価の列を出し入れする
   showToast(isDirector() ? 'ディレクター機能をオンにしました（案件に担当編集者と委託単価を入れられます）' : 'ディレクター機能をオフにしました', null);
 }
 
@@ -211,7 +211,6 @@ function resetForm({ keepClient = false } = {}) {
   $('project-form').reset();
   $('form-title').textContent = '案件を追加';
   $('btn-submit').textContent = '追加';
-  $('btn-cancel').hidden = true;
   $('btn-delete').hidden = true;
   $('form-error').textContent = '';
   $('project-form').classList.remove('editing');
@@ -240,7 +239,6 @@ function startEdit(id) {
   state.editingId = id;
   $('form-title').textContent = p.status === 'done' ? '案件を編集（完了済み）' : '案件を編集';
   $('btn-submit').textContent = '更新';
-  $('btn-cancel').hidden = false;
   $('btn-delete').hidden = false;
   $('form-error').textContent = '';
   $('project-form').classList.add('editing');
@@ -353,14 +351,27 @@ function bindForm() {
     if (!form.billingTouched && $('f-due').value) $('f-billing').value = monthOf($('f-due').value);
   });
   $('f-billing').addEventListener('input', () => { form.billingTouched = true; });
-  $('btn-cancel').addEventListener('click', cancelForm);
   $('btn-sheet-close').addEventListener('click', cancelForm);
   $('btn-add-more').addEventListener('click', (e) => onSubmit(e, { more: true }));
+  // 納期をワンタップで（着手日から数える。月末は着手日の月の末日）
+  $('f-due-quick').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-due]');
+    if (!b) return;
+    const base = $('f-start').value || todayStr();
+    const k = b.dataset.due;
+    let due;
+    if (k === 'fri') { const d = parseDate(base).getDay(); due = addDays(base, ((5 - d + 7) % 7) || 7); }
+    else if (k === 'eom') { const d = parseDate(`${shiftMonth(monthOf(base), 1)}-01`); d.setDate(0); due = fmtDate(d); }
+    else due = addDays(base, Number(k));
+    $('f-due').value = due;
+    $('f-due').dispatchEvent(new Event('change'));
+  });
   $('btn-add-project').addEventListener('click', openNewForm);
   // Esc でも閉じる（単価の設定などのダイアログが開いているときはそちらが先に閉じる）
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return;
-    if (settingsOpen()) closeSettings();
+    if (pageOpen('prices-view')) closePrices();
+    else if (settingsOpen()) closeSettings();
     else if (document.body.classList.contains('sheet-open')) cancelForm();
   });
   $('btn-delete').addEventListener('click', async () => {
@@ -986,52 +997,84 @@ function priceClientNames() {
   return [...new Set([...Object.keys(state.settings?.clientPrices ?? {}), ...clientNames()])].sort((a, b) => a.localeCompare(b, 'ja'));
 }
 
+// 単価のページ：1 クライアント 1 行（PC は表、スマホはカード）
 function renderPriceList() {
   const names = priceClientNames();
   const dir = isDirector();
-  const num = (cp, key, label, ph) => `
-    <label>${label}
-      <input type="number" min="0" step="100" inputmode="numeric" data-price-key="${key}" value="${cp[key] ?? ''}" placeholder="${ph ?? ''}">
+  const yenInput = (cp, key, label, ph) => `
+    <label class="pr-cell"><span class="pr-label">${label}</span>
+      <span class="yen-input"><input type="number" min="0" step="100" inputmode="numeric" data-price-key="${key}" value="${cp[key] ?? ''}" placeholder="${ph ?? ''}"></span>
     </label>`;
-  $('price-list').innerHTML = names.length ? names.map((name) => {
+  const head = `
+    <div class="price-row price-head ${dir ? 'with-dir' : ''}">
+      <span>クライアント</span><span>ショート単価</span><span>ロング単価</span>
+      ${dir ? '<span>担当編集者</span><span>委託（ショート）</span><span>委託（ロング）</span>' : ''}<span></span>
+    </div>`;
+  $('price-list').innerHTML = names.length ? head + names.map((name) => {
     const cp = clientPrice(name) ?? {};
     const lastS = lastPrice(name, 'short');
     const lastL = lastPrice(name, 'long');
+    const count = state.projects.filter((p) => p.client === name).length;
+    const hasAny = ['short', 'long', 'editor', 'feeShort', 'feeLong'].some((k) => cp[k] != null && cp[k] !== '');
     return `
-      <div class="price-card" data-price-client="${esc(name)}" style="${clientStyle(name)}">
-        <div class="price-card-head">
-          <span class="client-chip">${esc(name)}</span>
-          ${clientPrice(name) ? `<button type="button" class="ghost small" data-price-clear title="このクライアントの単価の設定を消す（案件は消えません）">設定を消す</button>` : ''}
-        </div>
-        <div class="row2">
-          ${num(cp, 'short', 'ショート単価', lastS != null ? `前回 ${lastS}` : '')}
-          ${num(cp, 'long', 'ロング単価', lastL != null ? `前回 ${lastL}` : '')}
-        </div>
+      <div class="price-row ${dir ? 'with-dir' : ''}" data-price-client="${esc(name)}" style="${clientStyle(name)}">
+        <div class="pr-name"><span class="client-chip">${esc(name)}</span><small class="muted">${count ? `案件 ${count}件` : '案件なし'}</small></div>
+        ${yenInput(cp, 'short', 'ショート単価', lastS != null ? `前回 ${lastS}` : '未設定')}
+        ${yenInput(cp, 'long', 'ロング単価', lastL != null ? `前回 ${lastL}` : '未設定')}
         ${dir ? `
-        <div class="price-dir">
-          <label>担当編集者
-            <input data-price-key="editor" list="editor-options" value="${esc(cp.editor ?? '')}" placeholder="空欄＝決めない">
-          </label>
-          <div class="row2">
-            ${num(cp, 'feeShort', '委託単価（ショート）')}
-            ${num(cp, 'feeLong', '委託単価（ロング）')}
-          </div>
-        </div>` : ''}
+        <label class="pr-cell"><span class="pr-label">担当編集者</span>
+          <input data-price-key="editor" list="editor-options" value="${esc(cp.editor ?? '')}" placeholder="決めない">
+        </label>
+        ${yenInput(cp, 'feeShort', '委託（ショート）')}
+        ${yenInput(cp, 'feeLong', '委託（ロング）')}` : ''}
+        <button type="button" class="ghost icon-btn pr-clear" data-price-clear ${hasAny ? '' : 'disabled'}
+          title="このクライアントの単価の設定を消す（案件は消えません）" aria-label="${esc(name)}の単価の設定を消す">✕</button>
       </div>`;
   }).join('') : '<p class="empty">まだクライアントがありません。下の欄から追加してください。</p>';
 }
 
-// 設定画面の「クライアントの単価」を開く。focus を渡すと、そのクライアントの欄に入れられる状態にする（まだ無ければ一覧に足す）
+// ---------- 全面のページ（設定・クライアントの単価） ----------
+// 重ねて開ける（入力画面 → 単価、設定 → 単価 など）。閉じると下のページに戻る
+
+const pageOpen = (id) => $(id).classList.contains('open');
+
+function openPage(id) {
+  if (pageOpen(id)) return;
+  $(id).classList.add('open');
+  $(id).scrollTop = 0;
+  document.body.classList.add('page-open');
+}
+
+function closePage(id) {
+  $(id).classList.remove('open');
+  if (!document.querySelector('.page-view.open')) document.body.classList.remove('page-open');
+}
+
+// クライアントの単価のページを開く。focus を渡すと、そのクライアントの行に入れられる状態にする（まだ無ければ一覧に足す）
 function openPrices(focus) {
   if (focus && !priceClientNames().includes(focus)) setClientPrice(focus, {});
-  openSettings();
-  const card = focus && [...$('price-list').querySelectorAll('[data-price-client]')].find((c) => c.dataset.priceClient === focus);
-  (card || $('set-prices')).scrollIntoView({ block: card ? 'center' : 'start' });
-  card?.querySelector('input')?.focus();
+  renderPriceList();
+  openPage('prices-view');
+  const row = focus && [...$('price-list').querySelectorAll('[data-price-client]')].find((c) => c.dataset.priceClient === focus);
+  if (row) {
+    row.scrollIntoView({ block: 'center' });
+    row.classList.add('flash');
+    row.querySelector('input')?.focus();
+  }
+}
+
+function closePrices() {
+  closePage('prices-view');
+  renderAll();
+  if (pageOpen('settings-view')) renderSettingsSummary();
+  // 案件の入力中（追加のとき）に開いていたら、決め直した単価を入れ直す
+  if (document.body.classList.contains('sheet-open') && !state.editingId && $('f-client').value.trim()) onClientChosen();
 }
 
 function bindPrices() {
-  // 入れたらその場で保存
+  $('prices-close').addEventListener('click', closePrices);
+  $('btn-open-prices').addEventListener('click', () => openPrices());
+  // 入れたらその場で保存（保存したことは下のお知らせで出す）
   $('price-list').addEventListener('change', (e) => {
     const input = e.target.closest('[data-price-key]');
     if (!input) return;
@@ -1041,7 +1084,8 @@ function bindPrices() {
     const value = key === 'editor' ? raw : (raw === '' || !(Number(raw) >= 0) ? null : Number(raw));
     setClientPrice(client, { [key]: value });
     if (key !== 'editor' && raw !== '' && value === null) input.value = '';
-    if (state.tab === 'clients') renderClients();
+    input.closest('[data-price-client]').querySelector('[data-price-clear]').disabled = false;
+    showToast(`「${client}」の単価を保存しました`, null);
   });
   $('price-list').addEventListener('click', (e) => {
     const b = e.target.closest('[data-price-clear]');
@@ -1050,7 +1094,6 @@ function bindPrices() {
     if (!confirm(`「${client}」の単価の設定を消します（案件はそのまま残ります）`)) return;
     setClientPrice(client, null);
     renderPriceList();
-    renderAll();
   });
   $('price-add-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1063,22 +1106,24 @@ function bindPrices() {
 
 // ---------- 設定画面（ヘッダーの歯車から開く。入れたらその場で保存） ----------
 
-const settingsOpen = () => document.body.classList.contains('settings-open');
+const settingsOpen = () => pageOpen('settings-view');
+
+function renderSettingsSummary() {
+  const n = Object.values(state.settings?.clientPrices ?? {}).filter((cp) => cp.short != null || cp.long != null).length;
+  $('set-prices-text').textContent = n
+    ? `${n}件のクライアントで決めてあります。クライアントを選ぶだけで単価が入ります`
+    : '決めておくと、クライアントを選ぶだけで単価が入ります';
+}
 
 function openSettings() {
-  renderPriceList();
   $('set-version').textContent = `v${APP_VERSION}`;
-  if (!settingsOpen()) {
-    document.body.classList.add('settings-open');
-    $('settings-view').scrollTop = 0;
-  }
+  renderSettingsSummary();
+  openPage('settings-view');
 }
 
 function closeSettings() {
-  document.body.classList.remove('settings-open');
+  closePage('settings-view');
   renderAll();
-  // 案件の入力中（追加のとき）に開いていたら、決め直した単価を入れ直す
-  if (document.body.classList.contains('sheet-open') && !state.editingId && $('f-client').value.trim()) onClientChosen();
 }
 
 // ---------- 書き出し・読み込み ----------

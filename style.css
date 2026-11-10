@@ -105,16 +105,18 @@ main { padding: 20px; max-width: 1280px; margin: 0 auto; }
 
 /* ---------- 入力フォーム ---------- */
 
-/* 案件の追加・編集は一覧とは別の全面の画面（「＋ 案件を追加」・「編集」で開く） */
-.project-form { display: none; flex-direction: column; gap: 12px; }
-body.sheet-open { overflow: hidden; }
+/* 案件の追加・編集は一覧とは別の全面のページ（「＋ 案件を追加」・「編集」で開く。見た目は下の「全面のページ」と共通） */
+.project-form { display: none; }
 body.sheet-open .project-form {
-  display: flex; position: fixed; inset: 0; z-index: 40; overflow-y: auto;
-  border-radius: 0; border: none; box-shadow: none; background: var(--bg);
-  /* 広い画面では真ん中に 560px の幅でまとめる */
-  padding: calc(20px + env(safe-area-inset-top)) max(16px, calc((100vw - 560px) / 2)) calc(28px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; position: fixed; inset: 0; z-index: 40; overflow-y: auto; background: var(--bg);
 }
-body.sheet-open .fab { display: none; }
+.form-sec { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.form-sec > h3, .set-section > h3 { font-size: 13px; margin: 0; padding-left: 8px; border-left: 3px solid var(--accent); color: var(--text); }
+.form-sec textarea { min-height: 64px; }
+/* 納期をワンタップで */
+.quick-dates { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+.quick-dates button { font-size: 12px; padding: 4px 10px; border-radius: 999px; color: var(--muted); background: var(--surface-2); }
+.quick-dates button:hover { color: var(--accent); }
 .project-form label, .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
 .project-form label small { font-weight: normal; }
 .field-label { font-size: 12px; }
@@ -137,8 +139,6 @@ body.sheet-open .fab { display: none; }
 .amount-preview b { color: var(--text); font-size: 18px; margin-left: 6px; }
 .form-error { color: var(--danger); margin: 0; min-height: 0; font-size: 13px; }
 .form-error:empty { display: none; }
-.form-actions { display: flex; gap: 8px; align-items: center; }
-.form-actions .primary { flex: 1; padding: 9px; }
 
 /* ---------- 一覧 ---------- */
 
@@ -190,8 +190,6 @@ body.sheet-open .fab { display: none; }
 /* ---------- ディレクター機能（担当編集者・委託費・純利益） ---------- */
 
 body:not(.director) .dir-only { display: none !important; }
-.dir-group { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 10px; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.dir-group legend { font-size: 12px; color: var(--muted); font-weight: 600; padding: 0 4px; }
 .dir-preview { text-align: right; color: var(--muted); font-size: 12px; }
 .dir-preview b { color: var(--text); font-size: 14px; margin-left: 4px; }
 .minus { color: var(--danger) !important; }
@@ -377,9 +375,7 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
 .theme-seg button { padding: 7px 4px; text-align: center; font-size: 13px; }
 .theme-seg button.active { background: var(--accent-soft); color: var(--accent); }
 
-.form-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
-.form-head h2 { font-size: 18px; }
-.project-form.editing .form-head h2 { color: var(--accent); }
+.project-form.editing .page-bar h2 { color: var(--accent); }
 .list-head .add-btn { margin-left: auto; align-self: center; }
 .price-src { color: var(--accent); background: var(--accent-soft); border-radius: 4px; padding: 0 5px; margin-left: 4px; font-size: 11px; }
 .price-src:empty { display: none; }
@@ -429,7 +425,6 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
   main { padding: 12px; }
   /* 入力画面を開くのは右下の「＋」 */
   .list-head .add-btn { display: none; }
-  .form-actions .primary { padding: 12px; }
 
   .fab {
     display: grid; place-items: center; position: fixed; z-index: 16;
@@ -636,38 +631,8 @@ body.invoice-viewing .iv-form { display: none; }
 .info-body ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.7; }
 .info-body b { font-weight: 700; }
 
-/* ---------- クライアントの単価 ---------- */
-
-.price-card {
-  border: 1px solid var(--border); border-left: 4px solid hsl(var(--hue) 60% 55%); border-radius: var(--radius);
-  padding: 10px 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 8px; background: var(--surface-2);
-}
-.price-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.price-card label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
-.price-card input, .price-add input {
-  border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; width: 100%; min-width: 0;
-  background: var(--surface); font-size: 14px; color: var(--text); font-weight: normal;
-}
-.price-dir { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
-.price-add { display: flex; gap: 8px; margin-top: 12px; }
-.price-add input { flex: 1; }
-.price-add button { white-space: nowrap; }
-.price-btn { margin-left: auto; color: var(--accent); }
-
-/* ---------- 設定画面（ヘッダーの歯車から開く全面の画面） ---------- */
-
-.settings-view { display: none; }
-body.settings-open { overflow: hidden; }
-body.settings-open .settings-view {
-  display: block; position: fixed; inset: 0; z-index: 45; overflow-y: auto; background: var(--bg);
-}
-body.settings-open .fab { display: none; }
-.settings-body {
-  max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px;
-  padding: 20px 16px calc(32px + env(safe-area-inset-bottom));
-}
-.set-section { padding: 14px 16px; }
-.set-section h3 { font-size: 14px; margin: 0 0 6px; padding-left: 8px; border-left: 3px solid var(--accent); }
+.set-section { padding: 14px 16px 6px; }
+.set-section > h3 { margin-bottom: 4px; }
 .set-help { font-size: 12px; color: var(--muted); margin: 0 0 10px; line-height: 1.6; }
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 0; flex-wrap: wrap; }
 .set-row + .set-row { border-top: 1px solid var(--border); }
@@ -679,4 +644,79 @@ button.set-link:hover .set-text { color: var(--accent); }
 .set-link .chev { font-size: 20px; color: var(--muted); line-height: 1; }
 .danger-text { color: var(--danger); border-color: var(--danger); }
 .set-version { text-align: center; font-size: 12px; margin: 4px 0 0; }
-.settings-view .iv-bar h2 { flex: 1; }
+
+/* ---------- 全面のページ（案件の入力・設定・クライアントの単価） ---------- */
+/* 上に「← 戻る」と見出しのバー、真ん中に内容、入力画面は下にボタンのバー */
+
+body.sheet-open, body.page-open { overflow: hidden; }
+body.sheet-open .fab, body.page-open .fab { display: none; }
+/* 上のバー・下のバーの左右を、真ん中の内容の端にそろえる */
+.project-form, .page-view { --page-w: 640px; --page-pad: max(16px, calc((100% - var(--page-w)) / 2 + 16px)); }
+#prices-view { --page-w: 1040px; }
+.page-view { display: none; }
+.page-view.open {
+  display: flex; flex-direction: column; position: fixed; inset: 0; z-index: 44; overflow-y: auto; background: var(--bg);
+}
+#prices-view.open { z-index: 46; }
+.page-bar {
+  position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 12px;
+  padding: calc(10px + env(safe-area-inset-top)) var(--page-pad) 10px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.page-bar h2 { font-size: 16px; flex: 1; min-width: 0; }
+.page-body {
+  width: 100%; max-width: var(--page-w); margin: 0 auto; flex: 1 0 auto;
+  display: flex; flex-direction: column; gap: 12px; padding: 16px 16px calc(28px + env(safe-area-inset-bottom));
+}
+.page-help { font-size: 12px; color: var(--muted); margin: 0; line-height: 1.7; }
+.page-actions {
+  position: sticky; bottom: 0; z-index: 3; display: flex; align-items: center; gap: 8px; justify-content: flex-end;
+  background: var(--surface); border-top: 1px solid var(--border);
+  padding: 10px var(--page-pad) calc(10px + env(safe-area-inset-bottom));
+}
+.page-actions .primary { min-width: 140px; padding: 10px 18px; }
+.page-actions .ghost { padding: 10px 14px; }
+.page-actions .danger-link { margin-left: 0; margin-right: auto; }
+.page-actions .danger-link[hidden] + * { margin-left: 0; }
+
+/* ---------- クライアントの単価（独立したページ） ---------- */
+
+.price-table { padding: 0; overflow: hidden; }
+.price-row {
+  display: grid; grid-template-columns: minmax(150px, 1.3fr) repeat(2, minmax(0, 1fr)) 36px; gap: 10px; align-items: center;
+  padding: 10px 14px; border-top: 1px solid var(--border); border-left: 4px solid hsl(var(--hue, 220) 60% 55%);
+}
+.price-row.with-dir { grid-template-columns: minmax(150px, 1.3fr) repeat(2, minmax(0, 1fr)) minmax(0, 1.2fr) repeat(2, minmax(0, 1fr)) 36px; }
+.price-head { border-top: none; border-left-color: transparent; background: var(--surface-2); font-size: 12px; font-weight: 600; color: var(--muted); padding-top: 8px; padding-bottom: 8px; }
+.pr-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; align-items: flex-start; }
+.pr-name small { font-size: 11px; }
+.pr-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pr-label { display: none; font-size: 11px; color: var(--muted); font-weight: 600; }
+.price-row input, .price-add input {
+  border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; width: 100%; min-width: 0;
+  background: var(--surface-2); font-size: 14px; color: var(--text);
+}
+.price-row input:focus, .price-add input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+/* 金額の欄は頭に ¥ を出す */
+.yen-input { position: relative; display: block; }
+.yen-input::before { content: "¥"; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px; pointer-events: none; }
+.yen-input input { padding-left: 24px; font-variant-numeric: tabular-nums; }
+.pr-clear { font-size: 14px; padding: 4px 8px; color: var(--muted); border-color: transparent; }
+.pr-clear:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+.pr-clear:disabled { opacity: .25; cursor: default; }
+.price-row.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
+.price-add { display: flex; gap: 8px; padding: 12px; }
+.price-add input { flex: 1; }
+.price-add button { white-space: nowrap; }
+.price-btn { margin-left: auto; color: var(--accent); }
+
+@media (max-width: 860px) {
+  .price-head { display: none; }
+  .price-row, .price-row.with-dir { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; }
+  .price-row:first-of-type { border-top: none; }
+  .pr-name { grid-column: 1; flex-direction: row; align-items: center; gap: 8px; }
+  .pr-clear { grid-column: 2; grid-row: 1; justify-self: end; }
+  .pr-label { display: block; }
+  .with-dir .pr-cell:nth-of-type(3) { grid-column: 1 / -1; }
+  .page-actions .primary { flex: 1; min-width: 0; }
+}
