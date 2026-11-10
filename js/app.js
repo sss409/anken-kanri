@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.9.2';
+const APP_VERSION = '0.10.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -146,10 +146,18 @@ function lastPrice(client, kind) {
   return hits[0]?.unitPrice;
 }
 
+// クライアントの単価の設定（なければ undefined）
+const clientPrice = (client) => state.settings?.clientPrices?.[client];
+const FEE_KEY = { short: 'feeShort', long: 'feeLong' };
+
+// 単価は「クライアントの単価」→「前回の単価」の順に入れる
 function autoFillPrice() {
   if (form.priceTouched && $('f-price').value !== '') return;
-  const price = lastPrice($('f-client').value.trim(), form.kind);
+  const client = $('f-client').value.trim();
+  const set = clientPrice(client)?.[form.kind];
+  const price = set ?? lastPrice(client, form.kind);
   if (price != null) $('f-price').value = price;
+  $('f-price-src').textContent = set != null ? 'クライアントの単価' : price != null ? '前回の単価' : '';
   updateAmount();
 }
 
@@ -162,11 +170,25 @@ function lastFee(editor, kind) {
   return hits[0]?.feeUnit;
 }
 
+// 委託単価は、クライアントの単価で決めた担当編集者のときはその委託単価、それ以外は前回の委託単価
 function autoFillFee() {
   if (form.feeTouched && $('f-fee').value !== '') return;
-  const fee = lastFee($('f-editor').value.trim(), form.kind);
-  $('f-fee').value = fee ?? '';
+  const editor = $('f-editor').value.trim();
+  const cp = clientPrice($('f-client').value.trim());
+  const set = cp && editor && cp.editor === editor ? cp[FEE_KEY[form.kind]] : null;
+  $('f-fee').value = set ?? lastFee(editor, form.kind) ?? '';
   updateAmount();
+}
+
+// クライアントを選んだとき：決めてある担当編集者を入れてから、単価・委託単価を入れる
+function onClientChosen() {
+  if (state.editingId) return;
+  const cp = clientPrice($('f-client').value.trim());
+  if (cp?.editor) $('f-editor').value = cp.editor;
+  form.priceTouched = false;
+  autoFillPrice();
+  form.feeTouched = false;
+  autoFillFee();
 }
 
 function updateAmount() {
@@ -195,6 +217,7 @@ function resetForm({ keepClient = false } = {}) {
   form.priceTouched = false;
   form.billingTouched = false;
   form.feeTouched = false;
+  $('f-price-src').textContent = '';
   $('f-count').value = 1;
   $('f-start').value = todayStr();
   $('f-billing').value = monthOf(todayStr());
@@ -213,7 +236,6 @@ function resetForm({ keepClient = false } = {}) {
 function startEdit(id) {
   const p = byId(id);
   if (!p) return;
-  if (state.tab !== 'list') setTab('list');
   state.editingId = id;
   $('form-title').textContent = p.status === 'done' ? '案件を編集（完了済み）' : '案件を編集';
   $('btn-submit').textContent = '更新';
@@ -236,20 +258,19 @@ function startEdit(id) {
   form.feeTouched = true;
   form.billingTouched = p.billingMonth !== monthOf(p.dueDate);
   updateAmount();
-  renderActiveList();
-  if (isNarrow()) openSheet();
-  else {
-    $('project-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    $('f-client').focus();
-  }
+  // 編集はいまのタブの上に入力画面を開く（閉じたら元のタブに戻る）
+  openSheet();
 }
 
-// スマホ幅では入力フォームを下から出るシートにする
 const isNarrow = () => matchMedia('(max-width: 860px)').matches;
 
+// 案件の追加・編集は、一覧とは別の画面（全面）で入力する
 function openSheet() {
   document.body.classList.add('sheet-open');
+  $('btn-add-more').hidden = !!state.editingId;
   $('project-form').scrollTop = 0;
+  // PC ではすぐ打ち始められるようにする（スマホはキーボードが勝手に出ないように何もしない）
+  if (!isNarrow()) (state.editingId || $('f-client').value ? $('f-title') : $('f-client')).focus();
 }
 
 function closeSheet() {
@@ -283,7 +304,8 @@ function readForm() {
   return { value: v };
 }
 
-async function onSubmit(e) {
+// 「追加」は一覧に戻る。「続けて追加」は入力画面のまま、クライアントなどを残して次の案件を入れる
+async function onSubmit(e, { more = false } = {}) {
   e.preventDefault();
   const { value, error } = readForm();
   if (error) { $('form-error').textContent = error; return; }
@@ -291,22 +313,25 @@ async function onSubmit(e) {
     await upsert({ ...byId(state.editingId), ...value });
     resetForm();
     closeSheet();
+    showToast(`「${value.title || value.client}」を更新しました`, null);
   } else {
     await upsert({ id: newId(), ...value, status: 'active', completedAt: null, createdAt: nowIso() });
     resetForm({ keepClient: true });
-    if (isNarrow()) {
-      closeSheet();
-      showToast(`「${value.title || value.client}」を追加しました`, null);
-    } else {
-      $('f-title').focus();
-    }
+    showToast(`「${value.title || value.client}」を追加しました`, null);
+    if (more) { $('project-form').scrollTop = 0; $('f-title').focus(); }
+    else closeSheet();
   }
 }
 
 function openNewForm() {
   if (state.editingId) resetForm();
-  if (state.tab !== 'list') setTab('list');
   openSheet();
+}
+
+function cancelForm() {
+  if (state.editingId) resetForm();
+  closeSheet();
+  renderActiveList();
 }
 
 function bindForm() {
@@ -319,17 +344,21 @@ function bindForm() {
   });
   $('f-editor').addEventListener('change', () => { if (!state.editingId || $('f-fee').value === '') { form.feeTouched = false; autoFillFee(); } });
   $('f-fee').addEventListener('input', () => { form.feeTouched = true; updateAmount(); });
-  $('f-client').addEventListener('change', () => { if (!state.editingId) autoFillPrice(); });
-  $('f-price').addEventListener('input', () => { form.priceTouched = true; updateAmount(); });
+  $('f-client').addEventListener('change', onClientChosen);
+  $('f-price').addEventListener('input', () => { form.priceTouched = true; $('f-price-src').textContent = ''; updateAmount(); });
+  $('f-open-prices').addEventListener('click', () => openPrices($('f-client').value.trim()));
   $('f-count').addEventListener('input', updateAmount);
   $('f-due').addEventListener('change', () => {
     if (!form.billingTouched && $('f-due').value) $('f-billing').value = monthOf($('f-due').value);
   });
   $('f-billing').addEventListener('input', () => { form.billingTouched = true; });
-  $('btn-cancel').addEventListener('click', () => { resetForm(); renderActiveList(); closeSheet(); });
-  $('btn-sheet-close').addEventListener('click', () => {
-    if (state.editingId) { resetForm(); renderActiveList(); }
-    closeSheet();
+  $('btn-cancel').addEventListener('click', cancelForm);
+  $('btn-sheet-close').addEventListener('click', cancelForm);
+  $('btn-add-more').addEventListener('click', (e) => onSubmit(e, { more: true }));
+  $('btn-add-project').addEventListener('click', openNewForm);
+  // Esc でも閉じる（単価の設定などのダイアログが開いているときはそちらが先に閉じる）
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.body.classList.contains('sheet-open') && !document.querySelector('dialog[open]')) cancelForm();
   });
   $('btn-delete').addEventListener('click', async () => {
     const p = byId(state.editingId);
@@ -438,7 +467,7 @@ function renderActiveList() {
   $('active-list').innerHTML = active.length
     ? active.map((p) => projectRow(p, { mode: 'active' })).join('')
     : allActive.length ? `<p class="empty">${esc(editorLabel(state.editorFilter))}が担当している進行中の案件はありません。</p>`
-    : `<p class="empty">進行中の案件はありません。${isNarrow() ? '右下の「＋」' : '左のフォーム'}から追加してください。</p>`;
+    : `<p class="empty">進行中の案件はありません。${isNarrow() ? '右下の「＋」' : '上の「＋ 案件を追加」'}から追加してください。</p>`;
 }
 
 // ---------- 完了（ワンボタンで仕分け） ----------
@@ -538,6 +567,7 @@ function renderClients() {
             ${unbilled ? `<span class="bill-state none">未請求 ${yen(unbilled)}</span>` : ''}
             ${waiting ? `<span class="bill-state wait">入金待ち ${yen(waiting)}</span>` : ''}
           </div>
+          ${priceButton(client)}
         </header>
         <div class="client-columns">
           <div>
@@ -548,6 +578,14 @@ function renderClients() {
         </div>
       </section>`;
   }).join('');
+}
+
+// クライアント別の見出しに出す単価（押すと単価の設定を開く）
+function priceButton(client) {
+  const cp = clientPrice(client) ?? {};
+  const parts = [cp.short != null ? `ショート ${yen(cp.short)}` : '', cp.long != null ? `ロング ${yen(cp.long)}` : ''].filter(Boolean);
+  return `<button class="ghost small price-btn" data-open-prices="${esc(client)}" title="このクライアントの単価を決める（案件を追加するときに自動で入る）">
+    ${parts.length ? `単価 ${parts.join('・')}` : '単価を設定'}</button>`;
 }
 
 // ---------- 完了済み ----------
@@ -930,6 +968,107 @@ function renderCalendar() {
     : '';
 }
 
+// ---------- クライアントの単価 ----------
+// settings.clientPrices = { クライアント: { short, long, editor, feeShort, feeLong } }（数値は空なら null）
+
+function setClientPrice(client, patch) {
+  const all = { ...(state.settings?.clientPrices ?? {}) };
+  if (patch === null) delete all[client];
+  else all[client] = { ...(all[client] ?? {}), ...patch };
+  updateSettings({ clientPrices: all });
+}
+
+// 一覧に出すクライアント：単価を決めてあるもの＋案件のあるもの（名前順）
+function priceClientNames() {
+  return [...new Set([...Object.keys(state.settings?.clientPrices ?? {}), ...clientNames()])].sort((a, b) => a.localeCompare(b, 'ja'));
+}
+
+function renderPriceList() {
+  const names = priceClientNames();
+  const dir = isDirector();
+  const num = (cp, key, label, ph) => `
+    <label>${label}
+      <input type="number" min="0" step="100" inputmode="numeric" data-price-key="${key}" value="${cp[key] ?? ''}" placeholder="${ph ?? ''}">
+    </label>`;
+  $('price-list').innerHTML = names.length ? names.map((name) => {
+    const cp = clientPrice(name) ?? {};
+    const lastS = lastPrice(name, 'short');
+    const lastL = lastPrice(name, 'long');
+    return `
+      <div class="price-card" data-price-client="${esc(name)}" style="${clientStyle(name)}">
+        <div class="price-card-head">
+          <span class="client-chip">${esc(name)}</span>
+          ${clientPrice(name) ? `<button type="button" class="ghost small" data-price-clear title="このクライアントの単価の設定を消す（案件は消えません）">設定を消す</button>` : ''}
+        </div>
+        <div class="row2">
+          ${num(cp, 'short', 'ショート単価', lastS != null ? `前回 ${lastS}` : '')}
+          ${num(cp, 'long', 'ロング単価', lastL != null ? `前回 ${lastL}` : '')}
+        </div>
+        ${dir ? `
+        <div class="price-dir">
+          <label>担当編集者
+            <input data-price-key="editor" list="editor-options" value="${esc(cp.editor ?? '')}" placeholder="空欄＝決めない">
+          </label>
+          <div class="row2">
+            ${num(cp, 'feeShort', '委託単価（ショート）')}
+            ${num(cp, 'feeLong', '委託単価（ロング）')}
+          </div>
+        </div>` : ''}
+      </div>`;
+  }).join('') : '<p class="empty">まだクライアントがありません。下の欄から追加してください。</p>';
+}
+
+// focus を渡すと、そのクライアントの欄を出してショート単価に入れられる状態にする（まだ無ければ一覧に足す）
+function openPrices(focus) {
+  if (focus && !priceClientNames().includes(focus)) setClientPrice(focus, {});
+  renderPriceList();
+  if (!$('price-dialog').open) $('price-dialog').showModal();
+  if (focus) {
+    const card = [...$('price-list').querySelectorAll('[data-price-client]')].find((c) => c.dataset.priceClient === focus);
+    card?.scrollIntoView({ block: 'center' });
+    card?.querySelector('input')?.focus();
+  }
+}
+
+function bindPrices() {
+  $('btn-prices').addEventListener('click', () => { $('menu').hidden = true; openPrices(); });
+  $('price-dialog-close').addEventListener('click', () => $('price-dialog').close());
+  $('price-dialog').addEventListener('click', (e) => { if (e.target === $('price-dialog')) $('price-dialog').close(); });
+  // 入れたらその場で保存
+  $('price-list').addEventListener('change', (e) => {
+    const input = e.target.closest('[data-price-key]');
+    if (!input) return;
+    const client = input.closest('[data-price-client]').dataset.priceClient;
+    const key = input.dataset.priceKey;
+    const raw = input.value.trim();
+    const value = key === 'editor' ? raw : (raw === '' || !(Number(raw) >= 0) ? null : Number(raw));
+    setClientPrice(client, { [key]: value });
+    if (key !== 'editor' && raw !== '' && value === null) input.value = '';
+    if (state.tab === 'clients') renderClients();
+  });
+  $('price-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-price-clear]');
+    if (!b) return;
+    const client = b.closest('[data-price-client]').dataset.priceClient;
+    if (!confirm(`「${client}」の単価の設定を消します（案件はそのまま残ります）`)) return;
+    setClientPrice(client, null);
+    renderPriceList();
+    renderAll();
+  });
+  $('price-add-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('price-add-name').value.trim();
+    if (!name) return;
+    $('price-add-name').value = '';
+    openPrices(name);
+  });
+  // 閉じたら、入力中の案件（追加のとき）に新しい単価を入れ直す
+  $('price-dialog').addEventListener('close', () => {
+    renderAll();
+    if (document.body.classList.contains('sheet-open') && !state.editingId && $('f-client').value.trim()) onClientChosen();
+  });
+}
+
 // ---------- 書き出し・読み込み ----------
 
 function exportData() {
@@ -979,8 +1118,9 @@ function bindGlobal() {
     if (b) setTab(b.dataset.tab);
   });
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-make-invoice],[data-project-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter],[data-editor-filter]');
+    const t = e.target.closest('[data-make-invoice],[data-project-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter],[data-editor-filter],[data-open-prices]');
     if (!t) return;
+    if (t.dataset.openPrices != null) { openPrices(t.dataset.openPrices); return; }
     if (t.dataset.editorFilter != null) {
       state.editorFilter = t.dataset.editorFilter === '*' ? null : t.dataset.editorFilter;
       renderActiveList();
@@ -1101,6 +1241,7 @@ async function init() {
   bindGlobal();
   bindForm();
   bindInvoice();
+  bindPrices();
   resetForm();
   state.settings = loadSettingsLocal();
   state.projects = await loadAll();

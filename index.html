@@ -56,6 +56,7 @@
             <span class="switch-state" id="director-state">オフ</span>
             <span class="switch" aria-hidden="true"><span class="switch-knob"></span></span>
           </button>
+          <button id="btn-prices">クライアントの単価<small>案件を追加するときに自動で入る単価</small></button>
           <button id="btn-export">書き出し<small>全データをJSONファイルに保存</small></button>
           <button id="btn-import">読み込み<small>JSONファイルの内容で置き換え</small></button>
           <button id="btn-data-info">データの扱いについて<small>保存場所・同期・消し方</small></button>
@@ -93,14 +94,17 @@
         </div>
 
         <div class="row2">
-          <label>単価（円）
+          <label><span>単価（円） <small class="price-src" id="f-price-src"></small></span>
             <input id="f-price" type="number" min="0" step="100" inputmode="numeric" required>
           </label>
           <label>本数
             <input id="f-count" type="number" min="1" step="1" inputmode="numeric" required>
           </label>
         </div>
-        <div class="amount-preview">金額 <b id="f-amount">¥0</b></div>
+        <div class="amount-preview">
+          <button type="button" class="link" id="f-open-prices" title="クライアントごとの単価を決めておくと、クライアントを選んだときに自動で入ります">クライアントの単価を設定</button>
+          <span>金額 <b id="f-amount">¥0</b></span>
+        </div>
 
         <!-- ディレクター機能（「⋯」メニューで切り替え）：担当してもらう編集者と委託費 -->
         <fieldset class="dir-group dir-only">
@@ -138,6 +142,7 @@
 
         <div class="form-actions">
           <button type="submit" class="primary" id="btn-submit">追加</button>
+          <button type="button" class="ghost" id="btn-add-more" title="追加して、同じクライアントで次の案件を入れる">続けて追加</button>
           <button type="button" class="ghost" id="btn-cancel" hidden>キャンセル</button>
           <button type="button" class="danger-link" id="btn-delete" hidden>削除</button>
         </div>
@@ -147,6 +152,7 @@
         <div class="list-head">
           <h2>進行中</h2>
           <span class="muted" id="active-summary"></span>
+          <button class="primary add-btn" id="btn-add-project">＋ 案件を追加</button>
         </div>
         <div class="client-filter editor-filter dir-only" id="editor-filter"></div>
         <div id="active-list"></div>
@@ -302,6 +308,22 @@
       <div class="iv-paper-wrap"><div class="invoice-paper" id="invoice-paper"></div></div>
     </div>
   </section>
+
+  <!-- クライアントの単価（「⋯」メニュー・案件の入力画面・クライアント別から開く。入れたらその場で保存） -->
+  <dialog class="info-dialog price-dialog" id="price-dialog" aria-labelledby="price-dialog-title">
+    <div class="info-head">
+      <h2 id="price-dialog-title">クライアントの単価</h2>
+      <button class="ghost icon-btn" id="price-dialog-close" aria-label="閉じる">✕</button>
+    </div>
+    <div class="info-body">
+      <p class="muted price-help">ここで決めた単価は、案件を追加するときにクライアントを選ぶと自動で入ります（空欄の種別は前回の案件の単価が入ります）。入れた内容はすぐ保存され、同期もされます。</p>
+      <div id="price-list"></div>
+      <form class="price-add" id="price-add-form" autocomplete="off">
+        <input id="price-add-name" list="client-options" placeholder="クライアント名">
+        <button type="submit" class="ghost">クライアントを追加</button>
+      </form>
+    </div>
+  </dialog>
 
   <!-- データの扱いについて（「⋯」メニューから開く） -->
   <dialog class="info-dialog" id="data-info" aria-labelledby="data-info-title">
