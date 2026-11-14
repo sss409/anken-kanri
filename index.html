@@ -60,126 +60,6 @@
   <main>
     <!-- 案件 -->
     <section class="view" id="view-list">
-      <!-- 案件の追加・編集（「＋ 案件を追加」「編集」で開く全面の画面） -->
-      <form class="project-form" id="project-form" autocomplete="off" novalidate>
-        <div class="page-bar">
-          <button type="button" class="ghost" id="btn-sheet-close">← 戻る</button>
-          <h2 id="form-title">案件を追加</h2>
-        </div>
-
-        <div class="page-body">
-          <section class="card form-sec">
-            <h3>案件</h3>
-            <label>クライアント
-              <input id="f-client" list="client-options" placeholder="例：〇〇チャンネル" required>
-              <datalist id="client-options"></datalist>
-            </label>
-            <!-- 登録してあるクライアント（単価タブ）と、案件のあるクライアントをボタンで選べる -->
-            <div class="pick-chips" id="f-client-chips"></div>
-            <label>案件名
-              <input id="f-title" placeholder="例：#12 雑談ショート">
-            </label>
-            <div class="field">
-              <span class="field-label">種別</span>
-              <div class="segmented" id="f-kind">
-                <button type="button" data-kind="short">ショート</button>
-                <button type="button" data-kind="long">ロング</button>
-              </div>
-            </div>
-          </section>
-
-          <section class="card form-sec">
-            <h3>金額</h3>
-            <!-- 単価の数え方（ロング＝横動画のときだけ選べる）：1本あたり／1分あたり（尺で払う案件） -->
-            <div class="field unit-field" id="f-unit-field" hidden>
-              <span class="field-label">単価の数え方</span>
-              <div class="segmented" id="f-unit">
-                <button type="button" data-unit="video">1本あたり</button>
-                <button type="button" data-unit="minute">1分あたり（尺）</button>
-              </div>
-            </div>
-            <div class="row2 price-row2" id="f-price-row">
-              <label><span><span id="f-price-label">単価（円）</span> <small class="price-src" id="f-price-src"></small></span>
-                <input id="f-price" type="number" min="0" step="100" inputmode="numeric" required>
-              </label>
-              <label class="minutes-field" hidden>1本の尺（分）
-                <input id="f-minutes" type="number" min="1" step="1" inputmode="numeric" placeholder="例：12" title="1分に満たない分は切り捨てます（12分30秒 → 12分）">
-              </label>
-              <label>本数
-                <input id="f-count" type="number" min="1" step="1" inputmode="numeric" required>
-              </label>
-            </div>
-
-            <!-- 追加料金（切り抜き選定料金など）。項目は設定画面で決めておくと、ボタンで足せる -->
-            <div class="extras">
-              <div class="extras-head">
-                <span class="field-label">追加料金</span>
-                <small class="muted">項目は「単価」タブで決められます</small>
-              </div>
-              <div id="f-extras"></div>
-              <div class="extra-presets" id="f-extra-presets"></div>
-            </div>
-
-            <div class="amount-preview">
-              <span class="amount-total"><small id="f-amount-breakdown"></small>金額 <b id="f-amount">¥0</b></span>
-            </div>
-          </section>
-
-          <!-- 担当してもらう編集者と委託費（ディレクタータブで編集者ごとの委託費・純利益にまとまる） -->
-          <section class="card form-sec">
-            <h3>担当編集者</h3>
-            <div class="row2">
-              <label>編集者
-                <input id="f-editor" list="editor-options" placeholder="空欄＝自分" title="空欄のときは自分で編集する案件として扱います">
-                <datalist id="editor-options"></datalist>
-              </label>
-              <label><span id="f-fee-label">委託単価（円）</span>
-                <input id="f-fee" type="number" min="0" step="100" inputmode="numeric" placeholder="1本あたり">
-              </label>
-            </div>
-            <!-- 設定画面で登録した委託先の編集者をボタンで選べる -->
-            <div class="pick-chips" id="f-editor-chips"></div>
-            <div class="dir-preview">委託費 <b id="f-fee-amount">¥0</b>　利益 <b id="f-profit">¥0</b></div>
-          </section>
-
-          <section class="card form-sec">
-            <h3>日程</h3>
-            <div class="row2">
-              <label>着手日
-                <input id="f-start" type="date" required>
-              </label>
-              <label>納期
-                <input id="f-due" type="date" required>
-              </label>
-            </div>
-            <!-- 納期をワンタップで（着手日から数える） -->
-            <div class="quick-dates" id="f-due-quick" aria-label="納期をすぐ決める">
-              <button type="button" data-due="3">3日後</button>
-              <button type="button" data-due="7">1週間後</button>
-              <button type="button" data-due="14">2週間後</button>
-              <button type="button" data-due="fri">次の金曜</button>
-              <button type="button" data-due="eom">月末</button>
-            </div>
-            <label><span>請求月 <small>（納期の月が自動で入ります）</small></span>
-              <input id="f-billing" type="month" required>
-            </label>
-          </section>
-
-          <section class="card form-sec">
-            <h3>メモ</h3>
-            <textarea id="f-memo" rows="2" aria-label="メモ" placeholder="素材の場所・修正の内容など"></textarea>
-          </section>
-
-          <p class="form-error" id="form-error"></p>
-        </div>
-
-        <!-- いつでも押せるように、画面の下に固定 -->
-        <div class="page-actions">
-          <button type="button" class="danger-link" id="btn-delete" hidden>削除</button>
-          <button type="button" class="ghost" id="btn-add-more" title="追加して、同じクライアントで次の案件を入れる">続けて追加</button>
-          <button type="submit" class="primary" id="btn-submit">追加</button>
-        </div>
-      </form>
 
       <div class="list-area">
         <div class="list-head">
@@ -308,6 +188,127 @@
       <div id="done-list"></div>
     </section>
   </main>
+
+    <!-- 案件の追加・編集（「＋ 案件を追加」「編集」で開く全面の画面） -->
+    <form class="project-form" id="project-form" autocomplete="off" novalidate>
+      <div class="page-bar">
+        <button type="button" class="ghost" id="btn-sheet-close">← 戻る</button>
+        <h2 id="form-title">案件を追加</h2>
+      </div>
+
+      <div class="page-body">
+        <section class="card form-sec">
+          <h3>案件</h3>
+          <label>クライアント
+            <input id="f-client" list="client-options" placeholder="例：〇〇チャンネル" required>
+            <datalist id="client-options"></datalist>
+          </label>
+          <!-- 登録してあるクライアント（単価タブ）と、案件のあるクライアントをボタンで選べる -->
+          <div class="pick-chips" id="f-client-chips"></div>
+          <label>案件名
+            <input id="f-title" placeholder="例：#12 雑談ショート">
+          </label>
+          <div class="field">
+            <span class="field-label">種別</span>
+            <div class="segmented" id="f-kind">
+              <button type="button" data-kind="short">ショート</button>
+              <button type="button" data-kind="long">ロング</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card form-sec">
+          <h3>金額</h3>
+          <!-- 単価の数え方（ロング＝横動画のときだけ選べる）：1本あたり／1分あたり（尺で払う案件） -->
+          <div class="field unit-field" id="f-unit-field" hidden>
+            <span class="field-label">単価の数え方</span>
+            <div class="segmented" id="f-unit">
+              <button type="button" data-unit="video">1本あたり</button>
+              <button type="button" data-unit="minute">1分あたり（尺）</button>
+            </div>
+          </div>
+          <div class="row2 price-row2" id="f-price-row">
+            <label><span><span id="f-price-label">単価（円）</span> <small class="price-src" id="f-price-src"></small></span>
+              <input id="f-price" type="number" min="0" step="100" inputmode="numeric" required>
+            </label>
+            <label class="minutes-field" hidden>1本の尺（分）
+              <input id="f-minutes" type="number" min="1" step="1" inputmode="numeric" placeholder="例：12" title="1分に満たない分は切り捨てます（12分30秒 → 12分）">
+            </label>
+            <label>本数
+              <input id="f-count" type="number" min="1" step="1" inputmode="numeric" required>
+            </label>
+          </div>
+
+          <!-- 追加料金（切り抜き選定料金など）。項目は設定画面で決めておくと、ボタンで足せる -->
+          <div class="extras">
+            <div class="extras-head">
+              <span class="field-label">追加料金</span>
+              <small class="muted">項目は「単価」タブで決められます</small>
+            </div>
+            <div id="f-extras"></div>
+            <div class="extra-presets" id="f-extra-presets"></div>
+          </div>
+
+          <div class="amount-preview">
+            <span class="amount-total"><small id="f-amount-breakdown"></small>金額 <b id="f-amount">¥0</b></span>
+          </div>
+        </section>
+
+        <!-- 担当してもらう編集者と委託費（ディレクタータブで編集者ごとの委託費・純利益にまとまる） -->
+        <section class="card form-sec">
+          <h3>担当編集者</h3>
+          <div class="row2">
+            <label>編集者
+              <input id="f-editor" list="editor-options" placeholder="空欄＝自分" title="空欄のときは自分で編集する案件として扱います">
+              <datalist id="editor-options"></datalist>
+            </label>
+            <label><span id="f-fee-label">委託単価（円）</span>
+              <input id="f-fee" type="number" min="0" step="100" inputmode="numeric" placeholder="1本あたり">
+            </label>
+          </div>
+          <!-- 設定画面で登録した委託先の編集者をボタンで選べる -->
+          <div class="pick-chips" id="f-editor-chips"></div>
+          <div class="dir-preview">委託費 <b id="f-fee-amount">¥0</b>　利益 <b id="f-profit">¥0</b></div>
+        </section>
+
+        <section class="card form-sec">
+          <h3>日程</h3>
+          <div class="row2">
+            <label>着手日
+              <input id="f-start" type="date" required>
+            </label>
+            <label>納期
+              <input id="f-due" type="date" required>
+            </label>
+          </div>
+          <!-- 納期をワンタップで（着手日から数える） -->
+          <div class="quick-dates" id="f-due-quick" aria-label="納期をすぐ決める">
+            <button type="button" data-due="3">3日後</button>
+            <button type="button" data-due="7">1週間後</button>
+            <button type="button" data-due="14">2週間後</button>
+            <button type="button" data-due="fri">次の金曜</button>
+            <button type="button" data-due="eom">月末</button>
+          </div>
+          <label><span>請求月 <small>（納期の月が自動で入ります）</small></span>
+            <input id="f-billing" type="month" required>
+          </label>
+        </section>
+
+        <section class="card form-sec">
+          <h3>メモ</h3>
+          <textarea id="f-memo" rows="2" aria-label="メモ" placeholder="素材の場所・修正の内容など"></textarea>
+        </section>
+
+        <p class="form-error" id="form-error"></p>
+      </div>
+
+      <!-- いつでも押せるように、画面の下に固定 -->
+      <div class="page-actions">
+        <button type="button" class="danger-link" id="btn-delete" hidden>削除</button>
+        <button type="button" class="ghost" id="btn-add-more" title="追加して、同じクライアントで次の案件を入れる">続けて追加</button>
+        <button type="submit" class="primary" id="btn-submit">追加</button>
+      </div>
+    </form>
 
   <div class="toast" id="toast" hidden>
     <span id="toast-msg"></span>

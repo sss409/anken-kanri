@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.15.0';
+const APP_VERSION = '0.15.1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -635,7 +635,7 @@ function projectRow(p, { mode }) {
   const badge = mode === 'active' ? dueBadge(p) : null;
   const left = mode === 'active'
     ? `<div class="due ${badge.cls}">${shortDate(p.dueDate)}<small>${badge.text}</small></div>`
-    : `<div class="due done">${shortDate(p.completedAt)}<small>完了</small></div>`;
+    : `<div class="due done">${p.completedAt ? shortDate(p.completedAt) : '—'}<small>完了</small></div>`;
   const stageBtn = (stage, label, tip) =>
     `<button class="stage-btn ${stage} ${p.stage === stage ? 'on' : ''}" data-stage="${stage}" data-id="${p.id}"
       title="${p.stage === stage ? 'もう一度押すと一つ前に戻す' : tip}">${label}</button>`;
@@ -826,7 +826,7 @@ function renderClients() {
     const byDue = (a, b) => a.dueDate.localeCompare(b.dueDate);
     const started = ps.filter((p) => p.status === 'active' && p.startDate <= today).sort(byDue);
     const upcoming = ps.filter((p) => p.status === 'active' && p.startDate > today).sort(byDue);
-    const done = ps.filter((p) => p.status === 'done').sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+    const done = ps.filter((p) => p.status === 'done').sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''));
     const mine = bills.filter((b) => b.client === client);
     const waiting = mine.filter((b) => b.invoiced).reduce((s, b) => s + b.total, 0);
     const unbilled = mine.filter((b) => !b.invoiced).reduce((s, b) => s + b.total, 0);
@@ -866,7 +866,7 @@ function renderClients() {
 function renderDoneList() {
   const done = state.projects
     .filter((p) => p.status === 'done')
-    .sort((a, b) => b.completedAt.localeCompare(a.completedAt) || a.client.localeCompare(b.client, 'ja'));
+    .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? '') || compareClients(a.client, b.client));
   if (!done.length) {
     $('done-list').innerHTML = '<p class="empty">完了した案件はまだありません。進行中の一覧で「完了」を押すとここに移ります。</p>';
     return;
@@ -874,7 +874,7 @@ function renderDoneList() {
   // 完了した月 → クライアント の順にまとめる
   const months = new Map();
   for (const p of done) {
-    const m = monthOf(p.completedAt);
+    const m = monthOf(p.completedAt ?? p.dueDate); // 完了日のないデータ（読み込んだ古いデータなど）は納期の月に
     if (!months.has(m)) months.set(m, new Map());
     const clients = months.get(m);
     if (!clients.has(p.client)) clients.set(p.client, []);
@@ -885,7 +885,7 @@ function renderDoneList() {
     const all = [...clients.values()].flat();
     html += `<section class="done-month">
       <h3>${monthLabel(m)}に完了 <span class="muted">${all.length}件 ・ ${yen(all.reduce((s, p) => s + amountOf(p), 0))}</span></h3>`;
-    for (const [client, list] of [...clients].sort((a, b) => a[0].localeCompare(b[0], 'ja'))) {
+    for (const [client, list] of [...clients].sort((a, b) => compareClients(a[0], b[0]))) {
       html += `<div class="done-client" style="${clientStyle(client)}">
         <h4><span class="client-chip">${esc(client)}</span><span class="muted">${list.length}件</span></h4>
         ${list.map((p) => projectRow(p, { mode: 'done' })).join('')}
@@ -1633,7 +1633,8 @@ function exportData() {
   a.href = URL.createObjectURL(blob);
   a.download = `案件管理_${todayStr().replaceAll('-', '')}.json`;
   a.click();
-  URL.revokeObjectURL(a.href);
+  // すぐ消すとブラウザによっては保存が始まらないので、少し待ってから消す
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
 async function importData(file) {
