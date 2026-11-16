@@ -13,7 +13,7 @@ const LINK_INBOX = 'claude-inbox.json';
 
 // Claude が変えてよい項目
 const LINK_FIELDS = ['client', 'title', 'kind', 'unitPrice', 'count', 'priceUnit', 'minutes', 'extras', 'startDate', 'dueDate',
-  'billingMonth', 'memo', 'progress', 'stage', 'draftAt', 'revisionAt', 'status', 'completedAt', 'editor', 'feeUnit'];
+  'billingMonth', 'memo', 'progress', 'stage', 'draftAt', 'revisionAt', 'status', 'completedAt', 'editor', 'feeUnit', 'outsources'];
 const LINK_REQUIRED = ['client', 'kind', 'unitPrice', 'count', 'startDate', 'dueDate', 'billingMonth'];
 
 const Link = {

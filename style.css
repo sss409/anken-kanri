@@ -749,6 +749,12 @@ body.sheet-open .fab, body.page-open .fab { display: none; }
 .extra-remove { font-size: 13px; padding: 4px 6px; color: var(--muted); border-color: transparent; }
 .extra-remove:hover { color: var(--danger); border-color: var(--danger); }
 .extra-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 一部の業務の外注：業務・外注先・金額・✕ */
+.out-line { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 110px 32px; }
+.stat-tile small { display: block; font-size: 11px; margin-top: 2px; }
+.outsource-table th:nth-child(2) { text-align: left; }
+.out-note { display: block; font-size: 11px; }
+.outsource-table td:nth-child(2) { white-space: normal; }
 .chip-btn { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); color: var(--text); }
 .chip-btn small { color: var(--muted); margin-left: 2px; }
 .chip-btn.other { color: var(--muted); border-style: dashed; }
@@ -774,6 +780,9 @@ body.sheet-open .fab, body.page-open .fab { display: none; }
   /* スマホは名前を 1 段目に、単価・回数・✕ を 2 段目に */
   .extra-line { grid-template-columns: minmax(0, 1fr) 76px 30px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
   .extra-line > input[data-extra-key="name"] { grid-column: 1 / -1; }
+  /* 外注は業務を 1 段目に、外注先・金額・✕ を 2 段目に */
+  .out-line { grid-template-columns: minmax(0, 1fr) 96px 30px; }
+  .out-line > input[data-out-key="work"] { grid-column: 1 / -1; }
   /* 金額は右に大きく、「クライアントの単価を決める」はその下 */
   .amount-preview { flex-direction: column-reverse; align-items: stretch; gap: 6px; }
   .amount-preview .link { align-self: flex-start; }

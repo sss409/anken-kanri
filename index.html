@@ -256,7 +256,7 @@
 
         <!-- 担当してもらう編集者と委託費（ディレクタータブで編集者ごとの委託費・純利益にまとまる） -->
         <section class="card form-sec">
-          <h3>担当編集者</h3>
+          <h3>担当編集者・外注</h3>
           <div class="row2">
             <label>編集者
               <input id="f-editor" list="editor-options" placeholder="空欄＝自分" title="空欄のときは自分で編集する案件として扱います">
@@ -268,7 +268,20 @@
           </div>
           <!-- 設定画面で登録した委託先の編集者をボタンで選べる -->
           <div class="pick-chips" id="f-editor-chips"></div>
-          <div class="dir-preview">委託費 <b id="f-fee-amount">¥0</b>　利益 <b id="f-profit">¥0</b></div>
+
+          <!-- 一部の業務だけ外に頼んだときの料金（サムネイル・テロップなど）。委託費に足して純利益から引く -->
+          <div class="extras outsources">
+            <div class="extras-head">
+              <span class="field-label">一部の業務の外注</span>
+              <small class="muted">金額はこの案件で払う合計</small>
+            </div>
+            <div id="f-outsources"></div>
+            <div class="extra-presets" id="f-outsource-presets"></div>
+            <datalist id="outsource-work-options"></datalist>
+            <datalist id="outsource-to-options"></datalist>
+          </div>
+
+          <div class="dir-preview">委託費 <b id="f-fee-amount">¥0</b><span id="f-out-wrap" hidden>　外注 <b id="f-out-amount">¥0</b></span>　利益 <b id="f-profit">¥0</b></div>
         </section>
 
         <section class="card form-sec">

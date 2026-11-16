@@ -60,8 +60,13 @@ const extrasAmountOf = (p) => extrasOf(p).reduce((s, x) => s + (Number(x.price) 
 const baseAmountOf = (p) => p.unitPrice * unitsOf(p);
 // 請求する金額＝編集代＋追加料金
 const amountOf = (p) => baseAmountOf(p) + extrasAmountOf(p);
-// 編集者に払う委託費（委託単価 × 本数、1分あたりの案件は委託単価も 1分あたり）。委託単価が無い案件は 0
-const feeOf = (p) => (Number(p.feeUnit) || 0) * unitsOf(p);
+// 担当編集者に払う委託費（委託単価 × 本数、1分あたりの案件は委託単価も 1分あたり）。委託単価が無い案件は 0
+const editorFeeOf = (p) => (Number(p.feeUnit) || 0) * unitsOf(p);
+// 一部の業務の外注（サムネイル・テロップなど）：[{ work, to, amount }]。金額はその案件で払う合計
+const outsourcesOf = (p) => (Array.isArray(p.outsources) ? p.outsources : []);
+const outsourceAmountOf = (p) => outsourcesOf(p).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+// 案件で払うお金の合計＝担当編集者の委託費＋外注費（純利益＝請求額 − これ）
+const feeOf = (p) => editorFeeOf(p) + outsourceAmountOf(p);
 // 「¥5,000 × 3本」「¥1,000/分 × 12分」「¥1,000/分 × 12分 × 2本」
 function priceFormula(p) {
   if (!isPerMinute(p)) return `${yen(p.unitPrice)} × ${p.count}本`;

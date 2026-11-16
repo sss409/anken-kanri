@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.16.1';
+const APP_VERSION = '0.17.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -201,6 +201,7 @@ const form = {
   kind: 'short',
   unit: 'video',         // 単価の数え方：video＝1本あたり、minute＝1分あたり（ロングのときだけ選べる）
   extras: [],            // 追加料金 [{ name, price, qty }]
+  outsources: [],        // 一部の業務の外注 [{ work, to, amount }]
   priceTouched: false,   // 単価を手で変えたら自動入力しない
   billingTouched: false, // 請求月を手で変えたら納期に追従しない
   feeTouched: false,     // 委託単価を手で変えたら自動入力しない
@@ -313,6 +314,7 @@ function draftProject() {
     minutes: Math.floor(Number($('f-minutes').value) || 0),
     feeUnit: Number($('f-fee').value) || 0,
     extras: form.extras,
+    outsources: form.outsources,
   };
 }
 
@@ -323,7 +325,10 @@ function updateAmount() {
   const extra = extrasAmountOf(d);
   $('f-amount').textContent = yen(total);
   $('f-amount-breakdown').textContent = extra ? `編集 ${yen(baseAmountOf(d))} ＋ 追加 ${yen(extra)} ＝ ` : '';
-  $('f-fee-amount').textContent = yen(fee);
+  const out = outsourceAmountOf(d);
+  $('f-fee-amount').textContent = yen(editorFeeOf(d));
+  $('f-out-wrap').hidden = !out;
+  $('f-out-amount').textContent = yen(out);
   $('f-profit').textContent = yen(total - fee);
   $('f-profit').classList.toggle('minus', total - fee < 0);
 }
@@ -375,6 +380,67 @@ function bindExtras() {
   });
 }
 
+// ---------- 一部の業務の外注（案件の入力画面） ----------
+
+// 前に入れた外注（業務・外注先の組ごとに一番新しい金額）。ボタンで同じ内容を足せる
+function pastOutsources() {
+  const seen = new Map();
+  const ps = [...state.projects].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+  for (const p of ps) for (const x of outsourcesOf(p)) {
+    const k = `${x.work ?? ''}\u0000${x.to ?? ''}`;
+    if (!seen.has(k)) seen.set(k, { work: x.work ?? '', to: x.to ?? '', amount: x.amount ?? null });
+  }
+  return [...seen.values()];
+}
+const OUTSOURCE_WORKS = ['サムネイル', 'テロップ', 'カット', '効果音・BGM'];
+
+function renderOutsources() {
+  $('f-outsources').innerHTML = form.outsources.map((x, i) => `
+    <div class="extra-line out-line" data-out-index="${i}">
+      <input data-out-key="work" list="outsource-work-options" value="${esc(x.work)}" placeholder="業務（例：サムネイル）" aria-label="外注した業務">
+      <input data-out-key="to" list="outsource-to-options" value="${esc(x.to)}" placeholder="外注先" aria-label="外注先">
+      <span class="yen-input"><input data-out-key="amount" type="number" min="0" step="100" inputmode="numeric" value="${x.amount ?? ''}" placeholder="金額" aria-label="金額"></span>
+      <button type="button" class="ghost icon-btn extra-remove" data-out-remove aria-label="この外注を消す" title="消す">✕</button>
+    </div>`).join('');
+  const past = pastOutsources();
+  $('f-outsource-presets').innerHTML = past.slice(0, 8).map((x, i) =>
+    `<button type="button" class="chip-btn" data-out-preset="${i}">＋ ${esc(x.work || '外注')}${x.to ? `（${esc(x.to)}）` : ''}${x.amount != null ? ` <small>${yen(x.amount)}</small>` : ''}</button>`).join('')
+    + '<button type="button" class="chip-btn other" data-out-preset="new">＋ 外注を追加</button>';
+  const works = [...new Set([...OUTSOURCE_WORKS, ...past.map((x) => x.work).filter(Boolean)])];
+  $('outsource-work-options').innerHTML = works.map((n) => `<option value="${esc(n)}">`).join('');
+  const tos = [...new Set([...editorNames(), ...past.map((x) => x.to).filter(Boolean)])];
+  $('outsource-to-options').innerHTML = tos.map((n) => `<option value="${esc(n)}">`).join('');
+  updateAmount();
+}
+
+function bindOutsources() {
+  $('f-outsource-presets').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-out-preset]');
+    if (!b) return;
+    const it = b.dataset.outPreset === 'new' ? { work: '', to: '', amount: null } : pastOutsources()[Number(b.dataset.outPreset)];
+    form.outsources = [...form.outsources, { ...it }];
+    renderOutsources();
+    const lines = $('f-outsources').querySelectorAll('.out-line');
+    lines[lines.length - 1]?.querySelector(it.work ? '[data-out-key="amount"]' : '[data-out-key="work"]')?.focus();
+  });
+  $('f-outsources').addEventListener('input', (e) => {
+    const input = e.target.closest('[data-out-key]');
+    if (!input) return;
+    const i = Number(input.closest('[data-out-index]').dataset.outIndex);
+    const key = input.dataset.outKey;
+    const raw = input.value;
+    form.outsources = form.outsources.map((x, j) => (j === i ? { ...x, [key]: key === 'amount' ? (raw === '' ? null : Number(raw)) : raw } : x));
+    updateAmount();
+  });
+  $('f-outsources').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-out-remove]');
+    if (!b) return;
+    const i = Number(b.closest('[data-out-index]').dataset.outIndex);
+    form.outsources = form.outsources.filter((_, j) => j !== i);
+    renderOutsources();
+  });
+}
+
 function resetForm({ keepClient = false } = {}) {
   // 続けて追加するときは、クライアント・種別・単価・担当編集者・委託単価をそのまま残す
   const keep = keepClient ? {
@@ -395,6 +461,7 @@ function resetForm({ keepClient = false } = {}) {
   $('f-start').value = todayStr();
   $('f-billing').value = monthOf(todayStr());
   form.extras = [];
+  form.outsources = [];
   if (keep) {
     $('f-client').value = keep.client;
     setKind(keep.kind);
@@ -406,6 +473,7 @@ function resetForm({ keepClient = false } = {}) {
     setKind('short');
   }
   renderExtras();
+  renderOutsources();
 }
 
 function startEdit(id) {
@@ -424,6 +492,8 @@ function startEdit(id) {
   $('f-minutes').value = p.minutes != null ? Math.floor(p.minutes) : '';
   form.extras = extrasOf(p).map((x) => ({ ...x }));
   renderExtras();
+  form.outsources = outsourcesOf(p).map((x) => ({ ...x }));
+  renderOutsources();
   $('f-price').value = p.unitPrice;
   $('f-count').value = p.count;
   $('f-start').value = p.startDate;
@@ -448,6 +518,7 @@ function openSheet() {
   document.body.classList.add('sheet-open');
   $('btn-add-more').hidden = !!state.editingId;
   renderExtras(); // 単価タブで決めた追加料金の項目をボタンに出す（同期で変わった分も）
+  renderOutsources();
   renderPickChips();
   $('project-form').scrollTop = 0;
   // PC ではすぐ打ち始められるようにする（スマホはキーボードが勝手に出ないように何もしない）
@@ -494,6 +565,14 @@ function readForm() {
     v.editor = $('f-editor').value.trim();
     v.feeUnit = $('f-fee').value === '' ? null : Number($('f-fee').value);
     if (v.feeUnit != null && !(v.feeUnit >= 0)) return { error: '委託単価は0以上で入れてください' };
+    // 業務・外注先・金額がすべて空の行は捨てる
+    v.outsources = form.outsources
+      .map((x) => ({ work: (x.work ?? '').trim(), to: (x.to ?? '').trim(), amount: x.amount }))
+      .filter((x) => x.work || x.to || x.amount != null);
+    for (const x of v.outsources) {
+      if (!x.work) return { error: '外注した業務（例：サムネイル）を入れてください' };
+      if (x.amount == null || !(x.amount >= 0)) return { error: `外注「${x.work}」の金額を入れてください` };
+    }
   }
   return { value: v };
 }
@@ -546,6 +625,7 @@ function bindForm() {
   });
   $('f-minutes').addEventListener('input', updateAmount);
   bindExtras();
+  bindOutsources();
   $('f-client').addEventListener('change', onClientChosen);
   $('f-price').addEventListener('input', () => { form.priceTouched = true; $('f-price-src').textContent = ''; updateAmount(); });
   // クライアント・編集者をボタンで選ぶ
@@ -999,16 +1079,62 @@ function editorRows(ym) {
   for (const p of state.projects) {
     if (p.billingMonth !== ym) continue;
     const name = p.editor ?? '';
-    if (!rows.has(name)) rows.set(name, { editor: name, count: 0, projects: 0, sales: 0, fee: 0, noFee: 0, clients: new Set() });
+    if (!rows.has(name)) rows.set(name, { editor: name, count: 0, projects: 0, sales: 0, fee: 0, out: 0, noFee: 0, clients: new Set() });
     const r = rows.get(name);
     r.count += p.count;
     r.projects += 1;
     r.sales += amountOf(p);
     r.fee += feeOf(p);
+    r.out += outsourceAmountOf(p);
     if (name && p.feeUnit == null) r.noFee += 1;
     r.clients.add(p.client);
   }
   return [...rows.values()].sort((a, b) => (a.editor === '') - (b.editor === '') || b.fee - a.fee || a.editor.localeCompare(b.editor, 'ja'));
+}
+
+// 請求月の外注を外注先ごとにまとめる（金額の多い順、外注先なしは最後）
+function outsourceRows(ym) {
+  const rows = new Map();
+  for (const p of state.projects) {
+    if (p.billingMonth !== ym) continue;
+    for (const x of outsourcesOf(p)) {
+      const to = x.to ?? '';
+      if (!rows.has(to)) rows.set(to, { to, count: 0, amount: 0, works: new Map() });
+      const r = rows.get(to);
+      r.count += 1;
+      r.amount += Number(x.amount) || 0;
+      if (x.work) r.works.set(x.work, (r.works.get(x.work) ?? 0) + 1);
+    }
+  }
+  return [...rows.values()].sort((a, b) => (a.to === '') - (b.to === '') || b.amount - a.amount || a.to.localeCompare(b.to, 'ja'));
+}
+const worksLabel = (r) => [...r.works].map(([w, n]) => (n > 1 ? `${w}×${n}` : w)).join('・');
+
+function outsourceTableHtml(ym) {
+  const rows = outsourceRows(ym);
+  if (!rows.length) return '';
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  return `
+    <h3 class="section-title">外注先別（一部の業務の外注）</h3>
+    <div class="card table-card">
+      <table class="bill-table outsource-table">
+        <thead><tr><th>外注先</th><th>業務</th><th>件数</th><th>外注費</th></tr></thead>
+        <tbody>
+          ${rows.map((r) => `
+            <tr>
+              <td class="name-col"><span class="editor-name ${r.to ? '' : 'self'}">${r.to ? esc(r.to) : '（外注先なし）'}</span></td>
+              <td data-label="業務">${esc(worksLabel(r))}</td>
+              <td class="num" data-label="件数">${r.count}件</td>
+              <td class="num total" data-label="外注費">${yen(r.amount)}</td>
+            </tr>`).join('')}
+        </tbody>
+        <tfoot><tr>
+          <td class="name-col">合計</td><td></td>
+          <td class="num" data-label="件数">${rows.reduce((s, r) => s + r.count, 0)}件</td>
+          <td class="num total" data-label="外注費">${yen(total)}</td>
+        </tr></tfoot>
+      </table>
+    </div>`;
 }
 
 const profitCell = (n) => `<span class="${n < 0 ? 'minus' : ''}">${yen(n)}</span>`;
@@ -1016,9 +1142,9 @@ const rateOf = (profit, sales) => (sales ? `${Math.round((profit / sales) * 100)
 
 function editorTableHtml(ym) {
   const rows = editorRows(ym);
-  if (!rows.some((r) => r.editor)) {
+  if (!rows.some((r) => r.editor || r.out)) {
     return `<h3 class="section-title">編集者別（委託費・純利益）</h3>
-      <p class="empty">${monthLabel(ym)}の案件に担当編集者が入っていません。案件の「編集」で担当編集者と委託単価を入れると、ここに編集者ごとの委託費と純利益が出ます。</p>`;
+      <p class="empty">${monthLabel(ym)}の案件に担当編集者・外注が入っていません。案件の「編集」で担当編集者と委託単価、一部の業務の外注を入れると、ここに編集者ごとの委託費と純利益が出ます。</p>`;
   }
   const sum = rows.reduce((s, r) => ({ count: s.count + r.count, sales: s.sales + r.sales, fee: s.fee + r.fee }), { count: 0, sales: 0, fee: 0 });
   return `
@@ -1036,7 +1162,7 @@ function editorTableHtml(ym) {
               </td>
               <td class="num" data-label="本数"><span class="cnt">${r.projects}件</span>${r.count}本</td>
               <td class="num" data-label="売上">${yen(r.sales)}</td>
-              <td class="num" data-label="委託費">${r.editor ? yen(r.fee) : '<span class="muted">—</span>'}</td>
+              <td class="num" data-label="委託費">${r.fee ? yen(r.fee) : '<span class="muted">—</span>'}${r.out ? `<small class="muted out-note">うち外注 ${yen(r.out)}</small>` : ''}</td>
               <td class="num total" data-label="純利益">${profitCell(r.sales - r.fee)}</td>
               <td class="num" data-label="利益率">${rateOf(r.sales - r.fee, r.sales)}</td>
             </tr>`).join('')}
@@ -1061,10 +1187,11 @@ function renderDirector() {
   const rows = billingRows(ym);
   const sales = rows.reduce((s, r) => s + r.total, 0);
   const fee = rows.reduce((s, r) => s + r.fee, 0);
+  const out = outsourceRows(ym).reduce((s, r) => s + r.amount, 0);
   const tiles = `
     <div class="stat-tiles">
       <div class="card stat-tile"><span>売上</span><b>${yen(sales)}</b></div>
-      <div class="card stat-tile"><span>委託費</span><b>${yen(fee)}</b></div>
+      <div class="card stat-tile"><span>委託費</span><b>${yen(fee)}</b>${out ? `<small class="muted">うち外注 ${yen(out)}</small>` : ''}</div>
       <div class="card stat-tile profit"><span>純利益</span><b>${profitCell(sales - fee)}</b></div>
       <div class="card stat-tile"><span>利益率</span><b>${rateOf(sales - fee, sales)}</b></div>
     </div>`;
@@ -1085,7 +1212,7 @@ function renderDirector() {
         </tbody>
       </table>
     </div>` : '';
-  $('director').innerHTML = (rows.length ? tiles + editorTableHtml(ym) + clientTable
+  $('director').innerHTML = (rows.length ? tiles + editorTableHtml(ym) + outsourceTableHtml(ym) + clientTable
     : `<p class="empty">${monthLabel(ym)}が請求月の案件はありません。</p>`) + assignmentHtml();
 }
 
@@ -1124,6 +1251,11 @@ async function copyDirector() {
   for (const r of billingRows(ym)) lines.push([r.client, r.total, r.fee, r.total - r.fee].join('\t'));
   lines.push('', ['編集者', '本数', '売上', '委託費', '純利益'].join('\t'));
   for (const r of editorRows(ym)) lines.push([editorLabel(r.editor), r.count, r.sales, r.fee, r.sales - r.fee].join('\t'));
+  const outs = outsourceRows(ym);
+  if (outs.length) {
+    lines.push('', ['外注先', '業務', '件数', '外注費'].join('\t'));
+    for (const r of outs) lines.push([r.to || '（外注先なし）', worksLabel(r), r.count, r.amount].join('\t'));
+  }
   try {
     await navigator.clipboard.writeText(lines.join('\n'));
     showToast(`${monthLabel(ym)}の委託費・純利益の表をコピーしました（Excelに貼り付けできます）`, null);
