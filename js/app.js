@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.15.1';
+const APP_VERSION = '0.16.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -35,7 +35,7 @@ const nowIso = () => new Date().toISOString();
 
 // 変更したレコードには updatedAt を付ける（同期で新しい方を残すため）
 async function upsert(p) {
-  p = { ...p, updatedAt: nowIso() };
+  p = { ...p, updatedAt: nowIso(), changedBy: 'アプリ' };
   const i = state.projects.findIndex((x) => x.id === p.id);
   if (i >= 0) state.projects[i] = p; else state.projects.push(p);
   await saveProject(p);
@@ -430,6 +430,7 @@ function startEdit(id) {
   $('f-due').value = p.dueDate;
   $('f-billing').value = p.billingMonth;
   $('f-memo').value = p.memo ?? '';
+  $('f-progress').value = p.progress ?? '';
   $('f-editor').value = p.editor ?? '';
   $('f-fee').value = p.feeUnit ?? '';
   form.priceTouched = true;
@@ -474,6 +475,7 @@ function readForm() {
     dueDate: $('f-due').value,
     billingMonth: $('f-billing').value,
     memo: $('f-memo').value.trim(),
+    progress: $('f-progress').value.trim(),
   };
   if (!v.client) return { error: 'クライアント名を入れてください' };
   if ($('f-price').value === '' || !(v.unitPrice >= 0)) return { error: '単価を入れてください' };
@@ -654,6 +656,7 @@ function projectRow(p, { mode }) {
           <span class="client-chip">${esc(p.client)}</span>
           <span class="kind-tag ${p.kind}">${KIND_LABEL[p.kind]}</span>
           ${mode === 'active' ? stageTag(p) : ''}
+          ${mode === 'active' ? progressTag(p) : ''}
           ${editorTag(p)}
           ${p.invoicedAt ? `<span class="issued-tag" title="案件別の請求書を発行済み">請求書発行 ${shortDate(p.invoicedAt)}</span>` : ''}
         </div>
@@ -736,6 +739,13 @@ function stageTag(p) {
 }
 
 // 押した日を記録して進み具合を変える。同じボタンをもう一度押したら一つ前に戻す（修正中→初稿提出→作業中）
+// 進行メモ（Claude の秘書が書いたものは、押さえたときにそう出す）
+function progressTag(p) {
+  if (!p.progress) return '';
+  const by = p.changedBy && p.changedBy !== 'アプリ' ? `（${p.changedBy}が更新）` : '';
+  return `<span class="progress-tag" title="${esc(p.progress + by)}">${esc(p.progress)}</span>`;
+}
+
 async function toggleStage(id, stage) {
   const p = byId(id);
   if (!p) return;
@@ -1100,7 +1110,7 @@ function assignmentHtml() {
           const badge = dueBadge(p);
           return `<li><button class="assign-item" data-edit="${p.id}" style="${clientStyle(p.client)}">
             <span class="due ${badge.cls}">${shortDate(p.dueDate)}<small>${badge.text}</small></span>
-            <span class="assign-main"><span class="client-chip">${esc(p.client)}</span> ${esc(p.title) || '<span class="muted">（案件名なし）</span>'}${stageTag(p)}</span>
+            <span class="assign-main"><span class="client-chip">${esc(p.client)}</span> ${esc(p.title) || '<span class="muted">（案件名なし）</span>'}${stageTag(p)}${progressTag(p)}</span>
             ${feeOf(p) ? `<span class="num muted">委託 ${yen(feeOf(p))}</span>` : ''}
           </button></li>`;
         }).join('')}</ul>
@@ -1612,7 +1622,62 @@ function bindEditorList() {
 
 function openSettings() {
   $('set-version').textContent = `v${APP_VERSION}`;
+  renderLink();
   openPage('settings-view');
+}
+
+// ---------- Claude 連携（設定画面の節） ----------
+
+const LINK_KIND_LABEL = { info: '', warn: '⚠ ' };
+
+function renderLink() {
+  const on = linkEnabled();
+  $('link-toggle').classList.toggle('on', on);
+  $('link-toggle').setAttribute('aria-checked', String(on));
+  $('link-state').textContent = on ? 'オン' : 'オフ';
+  let status = 'オフ';
+  let sub = '';
+  if (on) {
+    if (!Sync.available) status = 'この開き方では使えません（公開ページから開いてください）';
+    else if (!syncPref('syncEnabled')) status = '先にヘッダーの「同期を設定」で同期を始めてください';
+    else if (Link.lastError) status = Link.lastError;
+    else if (Link.lastAt) status = `連携しています（最後に写しを書いた ${Link.lastAt.getHours()}:${String(Link.lastAt.getMinutes()).padStart(2, '0')}）`;
+    else status = '次の同期で連携します';
+    sub = 'マイドライブ › 案件管理（Claude連携）';
+  }
+  $('link-status').textContent = status;
+  $('link-status-sub').textContent = sub;
+  $('link-status').closest('.set-row').classList.toggle('warn', on && !!Link.lastError);
+  $('link-log').innerHTML = Link.log.slice(0, 30).map((l) => {
+    const d = new Date(l.at);
+    return `<li class="${l.kind}"><time>${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}</time>${LINK_KIND_LABEL[l.kind] ?? ''}${esc(l.text)}</li>`;
+  }).join('');
+}
+
+function onLinkToggle() {
+  if (linkEnabled()) {
+    syncPref('claudeLink', null);
+    linkLog('info', 'この端末の Claude 連携をオフにしました');
+    renderLink();
+    return;
+  }
+  syncPref('claudeLink', '1');
+  linkLog('info', 'この端末の Claude 連携をオンにしました');
+  renderLink();
+  // 同期中なら、権限を足すためのログインをこの押した中で出す（ポップアップを止められないように）
+  if (Sync.available && syncPref('syncEnabled')) onSyncButton();
+}
+
+async function copyLinkLog() {
+  const lines = [`案件管理 v${APP_VERSION} / Claude 連携 ${linkEnabled() ? 'オン' : 'オフ'} / 同期 ${Sync.status}`,
+    `端末: ${navigator.userAgent}`, `状態: ${$('link-status').textContent}`,
+    ...Link.log.map((l) => `${l.at} [${l.kind}] ${l.text}`)];
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    showToast('ログをコピーしました', null);
+  } catch {
+    showToast('コピーできませんでした', null);
+  }
 }
 
 function closeSettings() {
@@ -1645,6 +1710,8 @@ async function importData(file) {
     alert('JSONファイルとして読み込めませんでした');
     return;
   }
+  // Claude 連携の写し（anken-kanri.json やそのバックアップ）は中の data を読む
+  if (data?.app === 'anken-kanri-mirror' && data.data) data = data.data;
   const list = Array.isArray(data) ? data : data.projects;
   if (!Array.isArray(list)) { alert('案件データが見つかりませんでした'); return; }
   if (!confirm(`${list.length}件の案件で、今のデータ（${state.projects.length}件）を置き換えます。`)) return;
@@ -1726,6 +1793,8 @@ function bindGlobal() {
     if (file) await importData(file);
   });
   $('btn-sync').addEventListener('click', onSyncButton);
+  $('link-toggle').addEventListener('click', onLinkToggle);
+  $('btn-link-copy').addEventListener('click', copyLinkLog);
   $('btn-data-info').addEventListener('click', () => $('data-info').showModal());
   $('data-info-close').addEventListener('click', () => $('data-info').close());
   // 外側（暗くなった所）を押しても閉じる
@@ -1788,6 +1857,7 @@ function renderSyncStatus(status, detail) {
   $('set-sync-text').textContent = !Sync.available ? 'この開き方では使えません（公開ページから開くと使えます）'
     : status === 'off' ? 'ヘッダーの「同期を設定」から始められます' : `同期しています（${b.textContent}）`;
   if (status === 'error' && detail) showToast(`同期できませんでした：${detail}`, null);
+  if (settingsOpen()) renderLink();
 }
 
 async function init() {
@@ -1809,6 +1879,8 @@ async function init() {
   state.deleted = new Map((await loadDeleted()).map((d) => [d.id, d]));
   const tab = prefGet('tab', 'list');
   setTab(['list', 'clients', 'calendar', 'billing', 'done', 'prices', 'director'].includes(tab) ? tab : 'list');
+  loadLinkState();
+  Link.onChange = () => { if (settingsOpen()) renderLink(); };
   initSync({ getLocal: localData, applyMerged: applyData, onStatus: renderSyncStatus });
   // ホーム画面に追加したとき、電波がなくても開けるようにする（https か localhost のときだけ）
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {

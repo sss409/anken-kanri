@@ -296,6 +296,9 @@
 
         <section class="card form-sec">
           <h3>メモ</h3>
+          <label><span>進行メモ <small>（一覧の案件名の横に出ます。Claude の秘書もここに書きます）</small></span>
+            <input id="f-progress" type="text" maxlength="60" placeholder="例: カット初稿提出済み・戻り待ち">
+          </label>
           <textarea id="f-memo" rows="2" aria-label="メモ" placeholder="素材の場所・修正の内容など"></textarea>
         </section>
 
@@ -444,6 +447,20 @@
         </div>
       </section>
 
+      <section class="card set-section" id="link-section">
+        <h3>Claude 連携</h3>
+        <button class="set-row set-switch" id="link-toggle" role="switch" aria-checked="false">
+          <span class="set-text">この端末で Claude と連携する<small>同期のたびに、マイドライブの「案件管理（Claude連携）」フォルダに写しを書き、Claude（仮想カンパニーの秘書）が書いた変更（案件の追加・納期・段階・進行メモ）を取り込みます。オンにすると、Google のログインを一度だけやり直します</small></span>
+          <span class="switch-state" id="link-state">オフ</span>
+          <span class="switch" aria-hidden="true"><span class="switch-knob"></span></span>
+        </button>
+        <div class="set-row link-status-row">
+          <div class="set-text"><span id="link-status">オフ</span><small id="link-status-sub"></small></div>
+          <button class="ghost small" id="btn-link-copy">ログをコピー</button>
+        </div>
+        <ol class="link-log" id="link-log"></ol>
+      </section>
+
       <section class="card set-section">
         <h3>データ</h3>
         <button class="set-row set-link" id="btn-export"><span class="set-text">書き出し<small>全データを JSON ファイルに保存</small></span><span class="chev">›</span></button>
@@ -518,6 +535,15 @@
         </ul>
       </section>
       <section>
+        <h3>Claude 連携をオンにしたとき</h3>
+        <ul>
+          <li>同期のたびに、<b>あなたのマイドライブ</b>の「案件管理（Claude連携）」フォルダに、データの写し（anken-kanri.json）を書きます。クライアントのアイコン画像は入れません。</li>
+          <li>同じフォルダの claude-inbox.json に Claude が書いた変更を読み、取り込みます。取り込んだ結果は写しと、設定画面の「Claude 連携」のログに残ります。</li>
+          <li>増える権限は「このアプリが作ったファイルだけを扱う」もので、マイドライブのほかのファイルは見えません。</li>
+          <li>オフにすると、その端末からは写しを書かず、変更も取り込みません（フォルダは残ります。要らなければドライブで消してください）。</li>
+        </ul>
+      </section>
+      <section>
         <h3>アプリ本体について</h3>
         <ul>
           <li>アプリのプログラムは GitHub Pages から配信しています。広告や、利用状況を集める仕組み（アクセス解析など）は入れていません。</li>
@@ -549,6 +575,7 @@
   <script src="js/db.js"></script>
   <script src="js/config.js"></script>
   <script src="js/sync.js"></script>
+  <script src="js/claude-link.js"></script>
   <script src="js/invoice.js"></script>
   <script src="js/app.js"></script>
 </body>

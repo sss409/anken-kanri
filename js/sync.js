@@ -57,12 +57,18 @@ function syncPref(key, value) {
   return null;
 }
 
-function savedToken() {
+function savedTokenRecord() {
   try {
     const t = JSON.parse(syncPref('syncToken') || 'null');
-    return t && t.expiresAt > Date.now() + 60_000 ? t.accessToken : null;
+    return t && t.expiresAt > Date.now() + 60_000 ? t : null;
   } catch { return null; }
 }
+const savedToken = () => savedTokenRecord()?.accessToken ?? null;
+
+// Claude 連携がオンなら、マイドライブのアプリが作ったファイルだけを扱う権限（drive.file）も求める
+const wantedScopes = () => (syncPref('claudeLink') === '1' ? `${DRIVE_SCOPE} ${FILE_SCOPE}` : DRIVE_SCOPE);
+// いまの合鍵で Claude 連携ができるか（古い合鍵には範囲の記録がないので、できない扱い）
+const tokenHasFileScope = () => (savedTokenRecord()?.scope ?? '').split(' ').includes(FILE_SCOPE);
 
 function setStatus(status, detail = '') {
   Sync.status = status;
@@ -88,7 +94,7 @@ function initTokenClient() {
     scope: DRIVE_SCOPE,
     callback: (resp) => {
       if (resp.error) { setStatus('error', 'ログインできませんでした'); return; }
-      syncPref('syncToken', JSON.stringify({ accessToken: resp.access_token, expiresAt: Date.now() + resp.expires_in * 1000 }));
+      syncPref('syncToken', JSON.stringify({ accessToken: resp.access_token, expiresAt: Date.now() + resp.expires_in * 1000, scope: resp.scope ?? '' }));
       syncPref('syncEnabled', '1');
       syncNow();
     },
@@ -115,17 +121,23 @@ async function initSync(hooks) {
     if (document.visibilityState !== 'visible' || !syncPref('syncEnabled')) return;
     if (savedToken()) syncNow(); else setStatus('needs-tap');
   });
+  // Claude 連携がオンの間は、開いている間 5 分ごとに受け箱を見る（Claude の変更が早く出るように）
+  setInterval(() => {
+    if (document.visibilityState === 'visible' && linkEnabled() && syncPref('syncEnabled') && savedToken() && tokenHasFileScope()) syncNow();
+  }, 5 * 60_000);
 }
 
 // 同期ボタン（クリックの中で呼ぶこと。ポップアップを出すため）
 function onSyncButton() {
-  if (savedToken()) { syncNow(); return; }
+  if (savedToken() && (!linkEnabled() || tokenHasFileScope())) { syncNow(); return; }
   if (!Sync.tokenClient) {
     setStatus('error', 'Google のログイン部品がまだ読み込まれていません。少し待ってからもう一度押してください');
     loadGis().then(initTokenClient).catch(() => {});
     return;
   }
-  Sync.tokenClient.requestAccessToken({ prompt: syncPref('syncEnabled') ? '' : 'consent' });
+  // 権限を増やすときは同意の画面を出す
+  const more = linkEnabled() && savedToken() && !tokenHasFileScope();
+  Sync.tokenClient.requestAccessToken({ scope: wantedScopes(), include_granted_scopes: true, prompt: syncPref('syncEnabled') && !more ? '' : 'consent' });
 }
 
 function stopSync() {
@@ -191,7 +203,22 @@ async function syncNow() {
       ? { ...EMPTY, ...(await (await drive(`https://www.googleapis.com/drive/v3/files/${Sync.fileId}?alt=media`)).json()) }
       : EMPTY;
     const local = Sync.hooks.getLocal();
-    const merged = mergeData(local, remote);
+    let merged = mergeData(local, remote);
+    // Claude 連携：受け箱の変更を当て、写しを書く（失敗しても普段の同期は続ける）
+    if (linkEnabled()) {
+      if (!tokenHasFileScope()) {
+        Link.lastError = 'Claude 連携の許可がまだありません。ヘッダーの同期ボタンを押して、Google のログインをもう一度してください';
+        Link.onChange?.();
+      } else {
+        try {
+          merged = (await claudeExchange(merged)).data;
+        } catch (e) {
+          if (e instanceof AuthError) throw e;
+          Link.lastError = e.message;
+          linkLog('warn', `連携できませんでした：${e.message}`);
+        }
+      }
+    }
     if (!sameData(merged, local)) await Sync.hooks.applyMerged(merged);
     const payload = { app: 'anken-kanri', version: 3, savedAt: new Date().toISOString(), ...merged };
     if (!Sync.fileId) Sync.fileId = await createFile(payload);
