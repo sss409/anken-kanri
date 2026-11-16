@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.16.0';
+const APP_VERSION = '0.16.1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1643,7 +1643,7 @@ function renderLink() {
     else if (Link.lastError) status = Link.lastError;
     else if (Link.lastAt) status = `連携しています（最後に写しを書いた ${Link.lastAt.getHours()}:${String(Link.lastAt.getMinutes()).padStart(2, '0')}）`;
     else status = '次の同期で連携します';
-    sub = 'マイドライブ › 案件管理（Claude連携）';
+    sub = `この端末: ${deviceText(deviceInfo())} ・ マイドライブ › 案件管理（Claude連携）`;
   }
   $('link-status').textContent = status;
   $('link-status-sub').textContent = sub;
@@ -1669,7 +1669,7 @@ function onLinkToggle() {
 }
 
 async function copyLinkLog() {
-  const lines = [`案件管理 v${APP_VERSION} / Claude 連携 ${linkEnabled() ? 'オン' : 'オフ'} / 同期 ${Sync.status}`,
+  const lines = [`案件管理 v${APP_VERSION} / Claude 連携 ${linkEnabled() ? 'オン' : 'オフ'} / 同期 ${Sync.status} / この端末 ${deviceText(deviceInfo())}`,
     `端末: ${navigator.userAgent}`, `状態: ${$('link-status').textContent}`,
     ...Link.log.map((l) => `${l.at} [${l.kind}] ${l.text}`)];
   try {

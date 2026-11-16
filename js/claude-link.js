@@ -26,6 +26,24 @@ const Link = {
 
 const linkEnabled = () => syncPref('claudeLink') === '1';
 
+// この端末の見分け方：種類（スマホ・タブレット・PC）と OS・ブラウザ＋端末ごとの短い印（同じ種類の端末が 2 台でも分かる）
+function deviceLabel(ua = navigator.userAgent, touch = navigator.maxTouchPoints || 0) {
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) || (/Macintosh/.test(ua) && touch > 1) ? 'iPad'
+    : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '不明';
+  const kind = os === 'iPhone' || (os === 'Android' && /Mobile/.test(ua)) ? 'スマホ'
+    : os === 'iPad' || os === 'Android' ? 'タブレット' : 'PC';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? 'Samsung' : /CriOS|Chrome\//.test(ua) ? 'Chrome'
+    : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
+  return `${kind}（${os}${browser ? `・${browser}` : ''}）`;
+}
+
+function deviceInfo() {
+  let id = syncPref('claudeDeviceId');
+  if (!id) { id = Math.random().toString(36).slice(2, 6); syncPref('claudeDeviceId', id); }
+  return { id, label: deviceLabel() };
+}
+const deviceText = (d) => (d ? `${d.label} #${d.id}` : '不明な端末');
+
 function linkLog(kind, text) {
   Link.log.unshift({ at: new Date().toISOString(), kind, text });
   Link.log.length = Math.min(Link.log.length, 100);
@@ -177,17 +195,22 @@ async function claudeExchange(merged) {
   const prevResults = Array.isArray(mirror?.claude?.results) ? mirror.claude.results : [];
   const doneIds = new Set(prevResults.map((r) => r.id));
   const patches = Array.isArray(inbox?.patches) ? inbox.patches : [];
+  const device = deviceInfo();
   const { data, results, changed } = applyClaudePatches(merged, patches, doneIds);
   for (const r of results) {
+    r.device = device;
     const name = r.title ? `「${r.title}」` : '';
     const label = { applied: '取り込んだ', partial: '一部取り込んだ', already: '取り込み済み', conflict: '競合（アプリの値を残した）', skipped: '取り込まなかった', error: 'エラー' }[r.result];
     linkLog(r.result === 'error' || r.result === 'conflict' ? 'warn' : 'info',
       `${r.by}の変更${name}を${label}${r.fields?.length ? `（${r.fields.join('・')}）` : ''}${r.detail ? `：${r.detail}` : ''}`);
   }
   const { clientIcons, ...settingsLite } = data.settings ?? {};
+  const savedAt = new Date().toISOString();
+  // どの端末がいつ書いたか（新しい順に 50 回分）
+  const writes = [{ at: savedAt, ...device }, ...(Array.isArray(mirror?.writes) ? mirror.writes : [])].slice(0, 50);
   const payload = {
     app: 'anken-kanri-mirror', version: 1, appVersion: typeof APP_VERSION === 'string' ? APP_VERSION : '',
-    savedAt: new Date().toISOString(),
+    savedAt, device, writes,
     note: 'アプリが同期のたびに書く写し。Claude は読むだけで、変更は claude-inbox.json に書く',
     data: { projects: data.projects, invoices: data.invoices, deleted: data.deleted, settings: data.settings ? settingsLite : null },
     claude: { results: [...results, ...prevResults].slice(0, 300) },

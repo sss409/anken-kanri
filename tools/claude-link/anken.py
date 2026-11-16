@@ -95,6 +95,17 @@ def load_inbox() -> dict:
     return ib
 
 
+def device_text(d: dict | None) -> str:
+    return f'{d.get("label", "不明")} #{d.get("id", "?")}' if d else '端末の記録なし（0.16.0 以前）'
+
+
+def local_time(iso: str) -> str:
+    try:
+        return dt.datetime.fromisoformat(iso.replace('Z', '+00:00')).astimezone().strftime('%m/%d %H:%M:%S')
+    except Exception:
+        return iso or '?'
+
+
 def mirror_age_note(m: dict) -> str:
     try:
         saved = dt.datetime.fromisoformat(m['savedAt'].replace('Z', '+00:00'))
@@ -102,9 +113,10 @@ def mirror_age_note(m: dict) -> str:
         return ''
     mins = (dt.datetime.now(dt.timezone.utc) - saved).total_seconds() / 60
     local = saved.astimezone().strftime('%m/%d %H:%M')
+    by = f'・{device_text(m["device"])} が書いた' if m.get('device') else ''
     if mins > 24 * 60:
-        return f'写しは {local} のもの（1 日以上前。アプリを開いて同期すると新しくなる）'
-    return f'写しは {local} のもの'
+        return f'写しは {local} のもの{by}（1 日以上前。アプリを開いて同期すると新しくなる）'
+    return f'写しは {local} のもの{by}'
 
 
 def backup(*paths: Path) -> Path:
@@ -259,7 +271,13 @@ def cmd_status(a) -> None:
     if res:
         print('最近の取り込み結果:')
         for r in res:
-            print(f'  {r.get("at", "")[:16]} {RESULT_LABEL.get(r.get("result"), r.get("result"))} {r.get("title", "")} {r.get("detail", "")}')
+            dev = f'［{device_text(r["device"])}］' if r.get('device') else ''
+            print(f'  {local_time(r.get("at", ""))} {RESULT_LABEL.get(r.get("result"), r.get("result"))} {r.get("title", "")}{dev} {r.get("detail", "")}')
+    writes = m.get('writes', [])[:8]
+    if writes:
+        print('写しを書いた端末（新しい順）:')
+        for w in writes:
+            print(f'  {local_time(w.get("at", ""))} {device_text(w)}')
 
 
 def cmd_list(a) -> None:
