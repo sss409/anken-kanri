@@ -96,6 +96,12 @@ def main():
     check('追加は 1 件だけ', sum(1 for p in appdata()['projects'] if p['title'] == '1120_テスト') == 1)
     rc, out = claude('add', '--client', '吠瑠うに', '--title', '1120_テスト', '--kind', 'long', '--due', '2026-11-25', '--price', '15000')
     check('同じ案件は二重に足さない', rc == 1, out)
+    # 追加してすぐ（アプリが取り込む前に）変えても、競合にならない
+    claude('add', '--client', '吠瑠うに', '--title', '1121_続けて', '--kind', 'long', '--due', '2026-11-26', '--price', '15000', '--progress', 'はじめ')
+    claude('set', '1121_続けて', '--progress', 'つぎ')
+    out = app()
+    p = next(p for p in appdata()['projects'] if p['title'] == '1121_続けて')
+    check('追加の直後の変更も取り込まれる', p['progress'] == 'つぎ' and 'conflict' not in out, out)
     # 写しの記録が消えても（別の端末など）二重に足さない
     m = json.loads((link / 'anken-kanri.json').read_text(encoding='utf-8'))
     ib = json.loads((link / 'claude-inbox.json').read_text(encoding='utf-8'))

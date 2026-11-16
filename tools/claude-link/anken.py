@@ -238,7 +238,9 @@ def make_update(m: dict, ib: dict, pid: str, after: dict, note: str = '') -> dic
     for k in after:
         before[k] = (base or {}).get(k)
         for patch in sorted(pending(m, ib), key=lambda x: x.get('at', '')):
-            if patch.get('projectId') == pid and k in patch.get('after', {}):
+            if patch.get('op') == 'add' and patch.get('project', {}).get('id') == pid:
+                before[k] = patch['project'].get(k)   # まだ取り込まれていない追加
+            elif patch.get('projectId') == pid and k in patch.get('after', {}):
                 before[k] = patch['after'][k]
     return {'id': f'c-{uuid.uuid4().hex[:12]}', 'at': now_iso(), 'by': BY, 'op': 'update',
             'projectId': pid, 'before': before, 'after': after, 'note': note}
@@ -450,7 +452,6 @@ def cmd_company(a) -> None:
                 report.append(f'→ アプリ「{p.get("title")}」: {json.dumps(patch["after"], ensure_ascii=False)}')
         merged = {f: (to_app.get(f) or to_job.get(f) or jv[f] or av[f]) for f in ('due', 'stage', 'progress')}
         state[job.name] = {'id': pid, 'values': merged}
-    summary = render_summary(m, ib)
     if a.dry_run:
         print('\n'.join(report) or 'そろえる所はありません')
         print('\n（--dry-run なので書いていません）')
@@ -462,6 +463,7 @@ def cmd_company(a) -> None:
             log(f'.company に反映 {job.name} （バックアップ {dest.name}）')
         if patches:
             save_patches(patches, m, ib)
+    summary = render_summary(m, load_inbox())  # 今書いたパッチも重ねて出す
     WORK.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding='utf-8')
     out = COMPANY / 'secretary' / 'anken-app.md'
@@ -547,8 +549,10 @@ def main() -> int:
     s = sub.add_parser('company'); s.add_argument('--dry-run', action='store_true')
     s = sub.add_parser('link'); s.add_argument('job'); s.add_argument('query')
     a = ap.parse_args()
-    if getattr(a, 'price', None) is not None and float(a.price).is_integer():
-        a.price = int(a.price)
+    for k in ('price', 'minutes'):
+        v = getattr(a, k, None)
+        if v is not None and float(v).is_integer():
+            setattr(a, k, int(v))
     try:
         {'status': cmd_status, 'list': cmd_list, 'show': cmd_show, 'add': cmd_add, 'set': cmd_set,
          'company': cmd_company, 'link': cmd_link}[a.cmd](a)
