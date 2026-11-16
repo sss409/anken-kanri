@@ -3,6 +3,10 @@
 
 const SYNC_FILE = 'anken-kanri.json';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+const FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file'; // Claude 連携だけで使う
+
+// Claude 連携がオンか（オフの端末・claude-link.js を読めなかった時は、いままでどおりの同期だけ）
+const linkOn = () => syncPref('claudeLink') === '1' && typeof claudeExchange === 'function';
 
 // ---------- 統合 ----------
 
@@ -66,7 +70,7 @@ function savedTokenRecord() {
 const savedToken = () => savedTokenRecord()?.accessToken ?? null;
 
 // Claude 連携がオンなら、マイドライブのアプリが作ったファイルだけを扱う権限（drive.file）も求める
-const wantedScopes = () => (syncPref('claudeLink') === '1' ? `${DRIVE_SCOPE} ${FILE_SCOPE}` : DRIVE_SCOPE);
+const wantedScopes = () => (linkOn() ? `${DRIVE_SCOPE} ${FILE_SCOPE}` : DRIVE_SCOPE);
 // いまの合鍵で Claude 連携ができるか（古い合鍵には範囲の記録がないので、できない扱い）
 const tokenHasFileScope = () => (savedTokenRecord()?.scope ?? '').split(' ').includes(FILE_SCOPE);
 
@@ -123,20 +127,21 @@ async function initSync(hooks) {
   });
   // Claude 連携がオンの間は、開いている間 5 分ごとに受け箱を見る（Claude の変更が早く出るように）
   setInterval(() => {
-    if (document.visibilityState === 'visible' && linkEnabled() && syncPref('syncEnabled') && savedToken() && tokenHasFileScope()) syncNow();
+    if (document.visibilityState === 'visible' && linkOn() && syncPref('syncEnabled') && savedToken() && tokenHasFileScope()) syncNow();
   }, 5 * 60_000);
 }
 
 // 同期ボタン（クリックの中で呼ぶこと。ポップアップを出すため）
 function onSyncButton() {
-  if (savedToken() && (!linkEnabled() || tokenHasFileScope())) { syncNow(); return; }
+  if (savedToken() && (!linkOn() || tokenHasFileScope())) { syncNow(); return; }
   if (!Sync.tokenClient) {
     setStatus('error', 'Google のログイン部品がまだ読み込まれていません。少し待ってからもう一度押してください');
     loadGis().then(initTokenClient).catch(() => {});
     return;
   }
   // 権限を増やすときは同意の画面を出す
-  const more = linkEnabled() && savedToken() && !tokenHasFileScope();
+  if (!linkOn()) { Sync.tokenClient.requestAccessToken({ prompt: syncPref('syncEnabled') ? '' : 'consent' }); return; } // いままでどおり
+  const more = savedToken() && !tokenHasFileScope();
   Sync.tokenClient.requestAccessToken({ scope: wantedScopes(), include_granted_scopes: true, prompt: syncPref('syncEnabled') && !more ? '' : 'consent' });
 }
 
@@ -205,7 +210,7 @@ async function syncNow() {
     const local = Sync.hooks.getLocal();
     let merged = mergeData(local, remote);
     // Claude 連携：受け箱の変更を当て、写しを書く（失敗しても普段の同期は続ける）
-    if (linkEnabled()) {
+    if (linkOn()) {
       if (!tokenHasFileScope()) {
         Link.lastError = 'Claude 連携の許可がまだありません。ヘッダーの同期ボタンを押して、Google のログインをもう一度してください';
         Link.onChange?.();

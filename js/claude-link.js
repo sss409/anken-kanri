@@ -10,7 +10,6 @@
 const LINK_FOLDER = '案件管理（Claude連携）';
 const LINK_MIRROR = 'anken-kanri.json';
 const LINK_INBOX = 'claude-inbox.json';
-const FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 // Claude が変えてよい項目
 const LINK_FIELDS = ['client', 'title', 'kind', 'unitPrice', 'count', 'priceUnit', 'minutes', 'extras', 'startDate', 'dueDate',
