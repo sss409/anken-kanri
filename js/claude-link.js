@@ -11,10 +11,15 @@ const LINK_FOLDER = '案件管理（Claude連携）';
 const LINK_MIRROR = 'anken-kanri.json';
 const LINK_INBOX = 'claude-inbox.json';
 
-// Claude が変えてよい項目
+// Claude が変えてよい項目（案件）
 const LINK_FIELDS = ['client', 'title', 'kind', 'unitPrice', 'count', 'priceUnit', 'minutes', 'extras', 'startDate', 'dueDate',
-  'billingMonth', 'memo', 'progress', 'stage', 'draftAt', 'revisionAt', 'status', 'completedAt', 'editor', 'feeUnit', 'outsources'];
+  'billingMonth', 'memo', 'progress', 'stage', 'draftAt', 'revisionAt', 'status', 'completedAt', 'editor', 'feeUnit', 'outsources',
+  'invoicedAt', 'invoiceSnapshot', 'deliveries'];
 const LINK_REQUIRED = ['client', 'kind', 'unitPrice', 'count', 'startDate', 'dueDate', 'billingMonth'];
+// 請求書・振込の状態（請求月 × クライアント）で Claude が変えてよい項目
+const LINK_INVOICE_FIELDS = ['invoicedAt', 'paidAt', 'snapshot'];
+// 設定で Claude が変えられない所（アイコンの画像はアプリが取る）
+const LINK_SETTINGS_LOCKED = ['clientIcons', 'updatedAt'];
 
 const Link = {
   ids: null,          // { folder, mirror, inbox }
@@ -22,6 +27,7 @@ const Link = {
   lastAt: null,
   lastError: '',
   onChange: null,
+  iconQueue: new Set(), // アイコンを取り直すクライアント
 };
 
 const linkEnabled = () => syncPref('claudeLink') === '1';
@@ -59,17 +65,61 @@ function loadLinkState() {
 const linkEq = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 // ---------- パッチを当てる（ドライブを使わない純粋な処理） ----------
+// 操作（op）:
+//   add      … 案件を足す（project）
+//   update   … 案件の項目を変える（projectId・before・after）
+//   delete   … 案件をゴミ箱に移す（projectId・seen＝Claude が見た updatedAt）。設定画面のゴミ箱から戻せる
+//   restore  … ゴミ箱から戻す（projectId。ゴミ箱に中身が無い時は project）
+//   invoice  … 請求書・振込の状態（key＝"YYYY-MM|クライアント"・before・after。invoicedAt・paidAt・snapshot）
+//   settings … 設定（changes＝[{ path: [...], before, after, remove }]。単価タブ・委託先・請求書の設定・ファイル名の決まりなど）
+//   import   … 読み込みと同じ置き換え（data）。消える案件はゴミ箱へ
+
+const linkGet = (obj, path) => path.reduce((o, k) => (o == null ? undefined : o[k]), obj);
+
+// path の所だけを書き換えた新しい物（途中の物は写してから変える）
+function linkSet(obj, path, value, remove = false) {
+  const root = { ...(obj ?? {}) };
+  let cur = root;
+  for (let i = 0; i < path.length - 1; i++) {
+    const k = path[i];
+    const next = cur[k];
+    cur[k] = Array.isArray(next) ? [...next] : next && typeof next === 'object' ? { ...next } : {};
+    cur = cur[k];
+  }
+  const last = path[path.length - 1];
+  if (remove) {
+    if (Array.isArray(cur)) cur.splice(Number(last), 1); else delete cur[last];
+  } else cur[last] = value;
+  return root;
+}
 
 // data: { projects, invoices, deleted, settings }、patches: 受け箱の中身、doneIds: もう処理したパッチの id
-// 返り値: { data, results, changed }
+// 返り値: { data, results, changed, iconClients }
 function applyClaudePatches(data, patches, doneIds, now = new Date().toISOString()) {
-  const projects = data.projects.map((p) => ({ ...p }));
-  const deletedIds = new Set(data.deleted.map((d) => d.id));
+  let projects = data.projects.map((p) => ({ ...p }));
+  const invoices = new Map((data.invoices ?? []).map((r) => [r.key, { ...r }]));
+  const deleted = new Map((data.deleted ?? []).map((d) => [d.id, { ...d }]));
+  let settings = data.settings ?? null;
   const results = [];
+  const iconClients = new Set();
   let changed = false;
   const sorted = [...patches].filter((x) => x && x.id && !doneIds.has(x.id)).sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''));
   for (const patch of sorted) {
-    const res = { id: patch.id, at: now, by: patch.by ?? 'Claude', op: patch.op, result: 'applied', detail: '' };
+    const by = patch.by ?? 'Claude';
+    const res = { id: patch.id, at: now, by, op: patch.op, result: 'applied', detail: '' };
+    // 3 方向の統合：いまの値が before のまま、または Claude の方が後なら当てる（同じ時刻ならアプリ）
+    const decide = (cur, before, hasBefore, after, stamp) => {
+      if (linkEq(cur, after)) return 'same';
+      if ((hasBefore && linkEq(cur, before)) || (patch.at ?? '') > (stamp ?? '')) return 'set';
+      return 'keep';
+    };
+    const finish = (set, kept) => {
+      if (kept.length) {
+        res.result = set.length ? 'partial' : 'conflict';
+        res.detail = `アプリで後から変わっていたので、アプリの値を残した: ${kept.join('・')}`;
+      } else if (!set.length) { res.result = 'already'; res.detail = 'もう同じ値'; }
+      res.fields = set;
+    };
     try {
       if (patch.op === 'add') {
         const p = patch.project ?? {};
@@ -79,11 +129,11 @@ function applyClaudePatches(data, patches, doneIds, now = new Date().toISOString
         res.projectId = p.id;
         res.title = p.title ?? '';
         if (projects.some((x) => x.id === p.id)) { res.result = 'already'; res.detail = 'もう追加済み'; }
-        else if (deletedIds.has(p.id)) { res.result = 'skipped'; res.detail = 'アプリで削除済み'; }
+        else if (deleted.has(p.id)) { res.result = 'skipped'; res.detail = 'アプリで削除済み'; }
         else {
           const rec = { title: '', priceUnit: 'video', minutes: null, extras: [], memo: '', stage: null, status: 'active', completedAt: null };
           for (const k of LINK_FIELDS) if (p[k] !== undefined) rec[k] = p[k];
-          projects.push({ ...rec, id: p.id, createdAt: patch.at ?? now, updatedAt: now, changedBy: patch.by ?? 'Claude' });
+          projects.push({ ...rec, id: p.id, createdAt: patch.at ?? now, updatedAt: now, changedBy: by });
           changed = true;
         }
       } else if (patch.op === 'update') {
@@ -91,7 +141,7 @@ function applyClaudePatches(data, patches, doneIds, now = new Date().toISOString
         const i = projects.findIndex((x) => x.id === patch.projectId);
         if (i < 0) {
           res.result = 'skipped';
-          res.detail = deletedIds.has(patch.projectId) ? 'アプリで削除済み' : '案件が見つかりません';
+          res.detail = deleted.has(patch.projectId) ? 'アプリで削除済み' : '案件が見つかりません';
         } else {
           const p = projects[i];
           res.title = p.title ?? '';
@@ -101,24 +151,111 @@ function applyClaudePatches(data, patches, doneIds, now = new Date().toISOString
           const kept = [];
           for (const k of Object.keys(after)) {
             if (!LINK_FIELDS.includes(k)) { kept.push(`${k}（変えられない項目）`); continue; }
-            if (linkEq(p[k], after[k])) continue;
-            const appUnchanged = k in before && linkEq(p[k], before[k]);
-            // アプリ側でも変わっていたら、後から変えた方を残す（同じ時刻ならアプリ）
-            if (appUnchanged || (patch.at ?? '') > (p.updatedAt ?? '')) set.push(k);
-            else kept.push(k);
+            const d = decide(p[k], before[k], k in before, after[k], p.updatedAt);
+            if (d === 'set') set.push(k); else if (d === 'keep') kept.push(k);
           }
           if (set.length) {
-            const np = { ...p, updatedAt: now, changedBy: patch.by ?? 'Claude' };
+            const np = { ...p, updatedAt: now, changedBy: by };
             for (const k of set) np[k] = after[k];
             projects[i] = np;
             changed = true;
           }
-          if (kept.length) {
-            res.result = set.length ? 'partial' : 'conflict';
-            res.detail = `アプリで後から変わっていたので、アプリの値を残した: ${kept.join('・')}`;
-          } else if (!set.length) { res.result = 'already'; res.detail = 'もう同じ値'; }
-          res.fields = set;
+          finish(set, kept);
         }
+      } else if (patch.op === 'delete') {
+        res.projectId = patch.projectId;
+        const p = projects.find((x) => x.id === patch.projectId);
+        if (!p) {
+          const inTrash = deleted.has(patch.projectId);
+          res.result = inTrash ? 'already' : 'skipped';
+          res.detail = inTrash ? 'もうゴミ箱にある' : '案件が見つかりません';
+        } else {
+          res.title = p.title ?? '';
+          // Claude が見た後にアプリで変えていたら消さない（変えた内容を確かめてからにする）
+          if (patch.seen != null && (p.updatedAt ?? '') !== patch.seen && (p.updatedAt ?? '') > (patch.at ?? '')) {
+            res.result = 'conflict';
+            res.detail = 'Claude が見た後にアプリで変わっていたので、消さなかった';
+          } else {
+            projects = projects.filter((x) => x.id !== p.id);
+            deleted.set(p.id, { id: p.id, deletedAt: now, by, project: p });
+            changed = true;
+            res.detail = 'ゴミ箱に移した（設定 › ゴミ箱から戻せる）';
+          }
+        }
+      } else if (patch.op === 'restore') {
+        res.projectId = patch.projectId;
+        if (projects.some((x) => x.id === patch.projectId)) { res.result = 'already'; res.detail = 'もう戻っている'; }
+        else {
+          const snap = deleted.get(patch.projectId)?.project ?? patch.project;
+          if (!snap) throw new Error('ゴミ箱に中身がありません');
+          res.title = snap.title ?? '';
+          projects.push({ ...snap, id: patch.projectId, updatedAt: now, changedBy: by });
+          changed = true;
+        }
+      } else if (patch.op === 'invoice') {
+        const key = patch.key ?? '';
+        if (!/^\d{4}-\d{2}\|./.test(key)) throw new Error(`請求の key が変です: ${key}`);
+        const [month, client] = [key.slice(0, 7), key.slice(8)];
+        res.key = key;
+        res.title = `${month} ${client}`;
+        const r = invoices.get(key) ?? { key, month, client, invoicedAt: null, paidAt: null };
+        const after = patch.after ?? {};
+        const before = patch.before ?? {};
+        const set = [];
+        const kept = [];
+        for (const k of Object.keys(after)) {
+          if (!LINK_INVOICE_FIELDS.includes(k)) { kept.push(`${k}（変えられない項目）`); continue; }
+          const d = decide(r[k] ?? null, before[k] ?? null, k in before, after[k], r.updatedAt);
+          if (d === 'set') set.push(k); else if (d === 'keep') kept.push(k);
+        }
+        if (set.length) {
+          const nr = { ...r, updatedAt: now, changedBy: by };
+          for (const k of set) nr[k] = after[k];
+          invoices.set(key, nr);
+          changed = true;
+        }
+        finish(set, kept);
+      } else if (patch.op === 'settings') {
+        res.title = '設定';
+        const set = [];
+        const kept = [];
+        let next = settings;
+        for (const c of patch.changes ?? []) {
+          const path = Array.isArray(c.path) ? c.path.map(String) : [];
+          const name = path.join('.');
+          if (!path.length || LINK_SETTINGS_LOCKED.includes(path[0])) { kept.push(`${name}（変えられない項目）`); continue; }
+          const cur = linkGet(next, path);
+          let d;
+          if (c.remove) d = cur === undefined ? 'same' : (('before' in c && linkEq(cur, c.before)) || (patch.at ?? '') > (settings?.updatedAt ?? '')) ? 'set' : 'keep';
+          else d = decide(cur, c.before, 'before' in c, c.after, settings?.updatedAt);
+          if (d === 'set') {
+            next = linkSet(next, path, c.after, !!c.remove);
+            set.push(name);
+            if (path[0] === 'clientLinks' && path[1]) iconClients.add(path[1]);
+          } else if (d === 'keep') kept.push(name);
+        }
+        if (set.length) {
+          settings = { ...next, updatedAt: now };
+          changed = true;
+        }
+        finish(set, kept);
+      } else if (patch.op === 'import') {
+        // 設定画面の「読み込み」と同じ置き換え。消える案件はゴミ箱に入れる
+        const d = patch.data ?? {};
+        const list = Array.isArray(d) ? d : d.projects;
+        if (!Array.isArray(list)) throw new Error('案件データがありません');
+        res.title = `読み込み ${list.length}件`;
+        const keepIds = new Set(list.map((p) => p.id));
+        for (const p of projects) if (!keepIds.has(p.id)) deleted.set(p.id, { id: p.id, deletedAt: now, by, project: p });
+        for (const id of keepIds) deleted.delete(id);
+        projects = list.map((p) => ({ ...p, updatedAt: now, changedBy: by }));
+        for (const [k, r] of invoices) invoices.set(k, { ...r, invoicedAt: null, paidAt: null, updatedAt: now });
+        for (const r of Array.isArray(d.invoices) ? d.invoices : []) invoices.set(r.key, { ...r, updatedAt: now });
+        if (d.settings) {
+          const icons = settings?.clientIcons;
+          settings = { ...d.settings, ...(icons && !d.settings.clientIcons ? { clientIcons: icons } : {}), updatedAt: now };
+        }
+        changed = true;
       } else {
         throw new Error(`知らない操作: ${patch.op}`);
       }
@@ -128,7 +265,10 @@ function applyClaudePatches(data, patches, doneIds, now = new Date().toISOString
     }
     results.push(res);
   }
-  return { data: { ...data, projects }, results, changed };
+  return {
+    data: { ...data, projects, invoices: [...invoices.values()], deleted: [...deleted.values()], settings },
+    results, changed, iconClients: [...iconClients],
+  };
 }
 
 // ---------- ドライブ（マイドライブのフォルダ） ----------
@@ -196,7 +336,9 @@ async function claudeExchange(merged) {
   const doneIds = new Set(prevResults.map((r) => r.id));
   const patches = Array.isArray(inbox?.patches) ? inbox.patches : [];
   const device = deviceInfo();
-  const { data, results, changed } = applyClaudePatches(merged, patches, doneIds);
+  const { data, results, changed, iconClients } = applyClaudePatches(merged, patches, doneIds);
+  // YouTube・X のリンクを Claude が変えたクライアントは、取り込んだ後にアプリがアイコンを取り直す
+  for (const c of iconClients) Link.iconQueue.add(c);
   for (const r of results) {
     r.device = device;
     const name = r.title ? `「${r.title}」` : '';

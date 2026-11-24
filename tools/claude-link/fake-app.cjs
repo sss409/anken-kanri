@@ -25,7 +25,7 @@ const prev = mirror?.claude?.results ?? [];
 const { data: out, results } = ctx.applyClaudePatches(data, inbox.patches ?? [], new Set(prev.map((r) => r.id)));
 fs.writeFileSync(path.join(dir, 'appdata.json'), JSON.stringify(out, null, 1));
 fs.writeFileSync(path.join(dir, 'anken-kanri.json'), JSON.stringify({
-  app: 'anken-kanri-mirror', version: 1, appVersion: 'test', savedAt: new Date().toISOString(),
+  app: 'anken-kanri-mirror', version: 1, appVersion: process.env.FAKE_APP_VERSION ?? /APP_VERSION = '([^']+)'/.exec(fs.readFileSync(path.join(__dirname, '../../js/app.js'), 'utf8'))[1], savedAt: new Date().toISOString(),
   data: out, claude: { results: [...results, ...prev].slice(0, 300) },
 }, null, 1));
 for (const r of results) console.log(`${r.result} ${r.title ?? ''} ${(r.fields ?? []).join(',')} ${r.detail}`);

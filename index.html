@@ -315,6 +315,11 @@
           <textarea id="f-memo" rows="2" aria-label="メモ" placeholder="素材の場所・修正の内容など"></textarea>
         </section>
 
+        <section class="card form-sec" id="f-deliveries-sec" hidden>
+          <h3>提出した動画 <small class="muted">（Claude が PC の提出フォルダから入れます。新しい順）</small></h3>
+          <ul class="delivery-list" id="f-deliveries"></ul>
+        </section>
+
         <p class="form-error" id="form-error"></p>
       </div>
 
@@ -463,7 +468,7 @@
       <section class="card set-section" id="link-section">
         <h3>Claude 連携</h3>
         <button class="set-row set-switch" id="link-toggle" role="switch" aria-checked="false">
-          <span class="set-text">この端末で Claude と連携する<small>同期のたびに、マイドライブの「案件管理（Claude連携）」フォルダに写しを書き、Claude（仮想カンパニーの秘書）が書いた変更（案件の追加・納期・段階・進行メモ）を取り込みます。オンにすると、Google のログインを一度だけやり直します。Claude を使わない場合はオフのままで、いままでどおり使えます</small></span>
+          <span class="set-text">この端末で Claude と連携する<small>同期のたびに、マイドライブの「案件管理（Claude連携）」フォルダに写しを書き、Claude（仮想カンパニーの秘書）が書いた変更（案件の追加・編集・完了・削除、請求書・入金の状態、単価タブ・委託先・請求書の設定など、画面でできる変更）を取り込みます。オンにすると、Google のログインを一度だけやり直します。Claude を使わない場合はオフのままで、いままでどおり使えます</small></span>
           <span class="switch-state" id="link-state">オフ</span>
           <span class="switch" aria-hidden="true"><span class="switch-knob"></span></span>
         </button>
@@ -472,6 +477,12 @@
           <button class="ghost small" id="btn-link-copy">ログをコピー</button>
         </div>
         <ol class="link-log" id="link-log"></ol>
+      </section>
+
+      <section class="card set-section" id="trash-section">
+        <h3>ゴミ箱 <span class="muted" id="trash-count"></span></h3>
+        <p class="set-help">消した案件（アプリ・Claude のどちらで消したものも）はここに入ります。「戻す」で元に戻せます。</p>
+        <ul class="trash-list" id="trash-list"></ul>
       </section>
 
       <section class="card set-section">

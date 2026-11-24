@@ -19,13 +19,18 @@ def check(name, cond, info=''):
     print(('OK  ' if cond else 'NG  ') + name + ('' if cond else f'  {info}'))
 
 
+def load_inbox_patches(link):
+    return json.loads((link / 'claude-inbox.json').read_text(encoding='utf-8')).get('patches') or []
+
+
 def main():
     tmp = Path(tempfile.mkdtemp(prefix='anken-link-'))
     link, company = tmp / 'link', tmp / 'company'
     (company / 'production' / 'jobs').mkdir(parents=True)
     (company / 'secretary').mkdir(parents=True)
     link.mkdir()
-    env = {**os.environ, 'ANKEN_LINK_DIR': str(link), 'ANKEN_COMPANY': str(company), 'PYTHONIOENCODING': 'utf-8'}
+    env = {**os.environ, 'ANKEN_LINK_DIR': str(link), 'ANKEN_COMPANY': str(company), 'PYTHONIOENCODING': 'utf-8',
+           'ANKEN_DELIVERY_ROOT': str(tmp / 'delivery')}
 
     def claude(*args):
         r = subprocess.run([sys.executable, str(HERE / 'anken.py'), *args], env=env, capture_output=True, text=True, encoding='utf-8')
@@ -137,6 +142,181 @@ def main():
     rc, out = claude('company')
     check('2 回目は何も変えない', 'そろえる所はありません' in out, out)
     check('バックアップがある', any((company / '.anken' / 'backup').iterdir()))
+
+    # 7. 0.18.0 の操作（画面でできることを全部）
+    def mirror():
+        return json.loads((link / 'anken-kanri.json').read_text(encoding='utf-8'))
+
+    # 古いアプリが書いた写しには新しい操作を書かない（古い版は捨ててしまうので）
+    env_old = {**os.environ, 'FAKE_APP_VERSION': '0.17.0'}
+    subprocess.run(['node', str(HERE / 'fake-app.cjs'), str(link)], env=env_old, capture_output=True)
+    rc, out = claude('bill', '2026-11', '吠瑠うに', '--paid', '今日')
+    check('古いアプリの写しなら新しい操作は止める', rc == 1 and '0.18.0' in out, out)
+    app()
+
+    # 完了・戻す
+    rc, out = claude('undone', '1116_BD攻略')
+    app()
+    check('undone で進行中に戻る', proj(x['id'])['status'] == 'active' and proj(x['id'])['completedAt'] is None, out)
+    claude('done', '1116_BD攻略')
+    app()
+    check('done で完了', proj(x['id'])['status'] == 'done')
+
+    # 単価・本数・数え方・追加料金・案件別の請求書
+    rc, out = claude('set', '1116_BD攻略', '--per-minute', '--minutes', '12', '--price', '1500', '--extra', 'サムネイル:2000', '--extra', '選定:1000:2')
+    app()
+    p = proj(x['id'])
+    check('set で単価・数え方・追加料金', p['priceUnit'] == 'minute' and p['minutes'] == 12 and p['unitPrice'] == 1500
+          and [e['name'] for e in p['extras']] == ['サムネイル', '選定'] and p['extras'][1]['qty'] == 2, out)
+    rc, out = claude('set', '1116_BD攻略', '--per-video', '--price', '20000', '--extra', 'サムネイル:なし')
+    app()
+    p = proj(x['id'])
+    check('1本あたりに戻す・追加料金を消す', p['priceUnit'] == 'video' and p['minutes'] is None and [e['name'] for e in p['extras']] == ['選定'], out)
+    rc, out = claude('set', '1116_BD攻略', '--kind', 'short', '--per-minute', '--minutes', '3')
+    check('ショートで 1分あたりは止める', rc == 1, out)
+
+    # 請求書・入金の状態
+    rc, out = claude('bill', '2026-11', '吠瑠うに', '--invoiced', '2026-11-30', '--paid', '12/5')
+    check('bill が受け箱に書く', rc == 0, out)
+    rc, out = claude('billing', '2026-11')
+    check('billing に取り込み待ちが重なる', '入金済 2026-12-05' in out and '取り込み待ち' in out, out)
+    out = app()
+    r = next(r for r in appdata()['invoices'] if r['key'] == '2026-11|吠瑠うに')
+    check('アプリが請求・入金の状態を取り込む', r['invoicedAt'] == '2026-11-30' and r['paidAt'] == '2026-12-05' and r['updatedAt'], out)
+    rc, out = claude('bill', '2026-11', '別のクライアント', '--paid', '今日')
+    check('その月に案件の無いクライアントは止める', rc == 1, out)
+    # アプリで後から入金を外していたら、アプリを残す
+    claude('bill', '2026-11', '吠瑠うに', '--paid', '2026-12-06')
+    time.sleep(0.05)
+    d = appdata()
+    for r in d['invoices']:
+        if r['key'] == '2026-11|吠瑠うに':
+            r.update({'paidAt': None, 'updatedAt': '2099-01-01T00:00:00.000Z'})
+    (link / 'appdata.json').write_text(json.dumps(d), encoding='utf-8')
+    out = app()
+    r = next(r for r in appdata()['invoices'] if r['key'] == '2026-11|吠瑠うに')
+    check('請求の状態もアプリが後ならアプリの値', r['paidAt'] is None and 'conflict' in out, out)
+
+    # ゴミ箱
+    rc, out = claude('delete', '1120_テスト')
+    out = app()
+    t = next(p for p in appdata()['projects'] if p['title'] == '1121_続けて')
+    d = appdata()
+    check('delete でゴミ箱へ（中身が残る）', not any(p['title'] == '1120_テスト' for p in d['projects'])
+          and any(z.get('project', {}).get('title') == '1120_テスト' for z in d['deleted']), out)
+    rc, out = claude('trash')
+    check('trash に出る', '1120_テスト' in out, out)
+    claude('restore', '1120_テスト')
+    out = app()
+    check('restore で戻る', sum(1 for p in appdata()['projects'] if p['title'] == '1120_テスト') == 1, out)
+    claude('delete', '1121_続けて')
+    time.sleep(0.05)
+    out = app({t['id']: {'memo': '消される前にアプリで書いた'}})
+    check('Claude が見た後にアプリで変えた案件は消さない', any(p['id'] == t['id'] for p in appdata()['projects']) and 'conflict' in out, out)
+
+    # 単価タブ・委託先・追加料金の項目・請求書の設定
+    d = appdata()
+    d['settings'] = {'clientPrices': {'吠瑠うに': {'short': 5000}}, 'updatedAt': '2026-11-10T00:00:00.000Z', 'clientIcons': {'吠瑠うに': {'src': 'data:x'}}}
+    (link / 'appdata.json').write_text(json.dumps(d), encoding='utf-8')
+    app()
+    claude('price', '吠瑠うに', '--long-min', '1500', '--editor', 'かおりまる', '--fee-long-min', '500', '--color', '29', '--x', 'https://x.com/example')
+    claude('price', '新しいクライアント', '--add')
+    claude('editor', 'add', 'かおりまる')
+    claude('extra-item', 'add', 'サムネイル', '2000')
+    claude('setting', '--my-name', 'テスト 太郎', '--bank', 'テスト銀行', '--number', '1234567', '--addressee', '吠瑠うに=株式会社テスト',
+           '--honorific', '吠瑠うに=御中', '--rule-month', '{年}{請求月}_{宛名}')
+    # 取り込む前にアプリで別のクライアントの単価を変える → 両方残る
+    d = appdata()
+    d['settings']['clientPrices']['なるる'] = {'short': 4000}
+    d['settings']['updatedAt'] = '2099-01-01T00:00:00.000Z'
+    (link / 'appdata.json').write_text(json.dumps(d), encoding='utf-8')
+    out = app()
+    st = appdata()['settings']
+    cp = st['clientPrices']
+    check('単価タブ（単価・担当・委託・色・リンク）', cp['吠瑠うに'] == {'short': 5000, 'longMin': 1500, 'editor': 'かおりまる', 'feeLongMin': 500}
+          and st['clientColors']['吠瑠うに'] == 29 and st['clientLinks']['吠瑠うに']['x'] == 'https://x.com/example', json.dumps(st, ensure_ascii=False))
+    check('別の所の変更は両方残る（設定）', cp.get('なるる') == {'short': 4000} and '新しいクライアント' in cp, out)
+    check('委託先・追加料金の項目・請求書の設定', st['editors'] == ['かおりまる'] and st['extraItems'] == [{'name': 'サムネイル', 'price': 2000}]
+          and st['myName'] == 'テスト 太郎' and st['bankInfo']['number'] == '1234567' and st['addressees']['吠瑠うに'] == '株式会社テスト'
+          and st['honorifics']['吠瑠うに'] == '御中' and st['fileNameRules']['month'] == '{年}{請求月}_{宛名}', json.dumps(st, ensure_ascii=False))
+    check('アイコンの画像はそのまま', st['clientIcons'] == {'吠瑠うに': {'src': 'data:x'}})
+    claude('price', '新しいクライアント', '--clear')
+    claude('editor', 'remove', 'かおりまる')
+    out = app()
+    st = appdata()['settings']
+    check('単価の設定を消す・委託先を外す', '新しいクライアント' not in st['clientPrices'] and st['editors'] == [], out)
+    claude('price', 'なるる', '--move', 'top')
+    app()
+    check('並びを変える', appdata()['settings']['clientOrder'][0] == 'なるる', appdata()['settings'].get('clientOrder'))
+
+    # 請求書（CSV・HTML）→ 発行済み・控え
+    outdir = tmp / 'invoices'
+    rc, out = claude('invoice', '2026-11', '吠瑠うに', '--csv', '--html', '--out', str(outdir))
+    check('invoice が CSV・HTML を作る', rc == 0 and len(list(outdir.glob('*.csv'))) == 1 and len(list(outdir.glob('*.html'))) == 1, out)
+    csv = next(outdir.glob('*.csv')).read_text(encoding='utf-8-sig')
+    check('ファイル名の決まり・宛名・振込先が入る', next(outdir.glob('*.csv')).name.startswith('202611_株式会社テスト御中')
+          and '株式会社テスト 御中' in csv and 'テスト銀行' in csv and '1234567' in csv, out)
+    app()
+    r = next(r for r in appdata()['invoices'] if r['key'] == '2026-11|吠瑠うに')
+    check('請求書を作ると発行済み・控えが残る', r['invoicedAt'] == '2026-11-30' and r['snapshot']['fileName'].startswith('202611'), r)
+    rc, out = claude('invoice', '2026-11', '吠瑠うに', '--csv', '--out', str(tmp / 'again'))
+    check('発行済みなら控えを出す（受け箱に書かない）', '控え' in out and '受け箱' not in out, out)
+    rc, out = claude('invoice', '--project', '1120_テスト', '--csv', '--out', str(outdir))
+    app()
+    check('案件別の請求書', rc == 0 and next(p for p in appdata()['projects'] if p['title'] == '1120_テスト').get('invoiceSnapshot'), out)
+    if __import__('shutil').which('msedge') or Path(r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe').exists():
+        rc, out = claude('invoice', '2026-11', '吠瑠うに', '--pdf', '--no-mark', '--remake', '--out', str(tmp / 'pdf'))
+        pdf = list((tmp / 'pdf').glob('*.pdf'))
+        check('PDF を作る（Edge）', rc == 0 and pdf and pdf[0].read_bytes()[:4] == b'%PDF', out)
+
+    # 書き出し・読み込み
+    rc, out = claude('export', '--out', str(tmp / 'export.json'))
+    ex = json.loads((tmp / 'export.json').read_text(encoding='utf-8'))
+    check('export', rc == 0 and ex['app'] == 'anken-kanri' and len(ex['projects']) == len(appdata()['projects']), out)
+    one = dict(ex, projects=ex['projects'][:1])
+    (tmp / 'one.json').write_text(json.dumps(one, ensure_ascii=False), encoding='utf-8')
+    rc, out = claude('import', str(tmp / 'one.json'))
+    check('import は --yes が無いと書かない', rc == 0 and '--yes' in out, out)
+    claude('import', str(tmp / 'one.json'), '--yes')
+    app()
+    d = appdata()
+    check('import で置き換え・消えた分はゴミ箱', len(d['projects']) == 1 and len([z for z in d['deleted'] if z.get('project')]) >= 2, out)
+    claude('import', str(tmp / 'export.json'), '--yes')
+    app()
+    check('元の書き出しで戻せる', len(appdata()['projects']) == len(ex['projects']))
+
+    # 提出した動画（提出フォルダ → deliveries）
+    sub = tmp / 'delivery' / '吠瑠うに' / '提出' / '横動画' / '1116_BD攻略'
+    (sub / 'frameio').mkdir(parents=True)
+    t18 = time.mktime((2026, 11, 18, 12, 0, 0, 0, 0, -1))
+    for name, t in (('【初稿】1118_BD攻略.mp4', t18), ('【二稿】1118_BD攻略.mp4', t18 + 86400), ('カット.mp4', t18 - 86400),
+                    ('frameio/【初稿】1118_BD攻略.mp4', t18), ('../関係ない動画.mp4', t18), ('メモ.txt', t18)):
+        f = sub / name
+        f.write_bytes(b'0' * 10)
+        os.utime(f, (t, t))
+    old = sub.parent / '【初稿】1116_BD攻略.mp4'   # 着手より 3 日以上前の同じ名前は数えない
+    old.write_bytes(b'0'); os.utime(old, (t18 - 30 * 86400,) * 2)
+    rc, out = claude('deliveries', '--dry-run')
+    check('deliveries --dry-run は書かない', rc == 0 and '書いていません' in out and '3 本' in out, out)
+    os.environ['FAKE_APP_VERSION'] = '0.18.0'; app(); del os.environ['FAKE_APP_VERSION']
+    rc, out = claude('deliveries')
+    check('アプリが 0.19.0 より前なら止める', rc == 1 and '0.19.0' in out, out)
+    app()
+    rc, out = claude('deliveries')
+    app()
+    dl = proj(x['id']).get('deliveries') or []
+    check('提出した動画が案件に入る（古い順・frameio と関係ない物・古い物は入らない）',
+          rc == 0 and [d['label'] for d in dl] == ['カット', '初稿', '二稿'] and all(d['path'].endswith('.mp4') for d in dl)
+          and dl[-1]['at'] == '2026-11-19T12:00', json.dumps(dl, ensure_ascii=False))
+    rc, out = claude('deliveries')
+    check('変わらなければ書かない', rc == 0 and '新しく提出した動画はありません' in out, out)
+    rc, out = claude('company')
+    check('company でも提出を見る（変わらなければ何もしない）', rc == 0 and '提出した動画' not in out, out)
+    (sub / '【三稿】1118_BD攻略.mp4').write_bytes(b'0')
+    rc, out = claude('company')
+    app()
+    check('company が新しい提出を入れる', rc == 0 and '提出した動画 4 本' in out
+          and (proj(x['id']).get('deliveries') or [{}])[-1].get('label') == '三稿', out)
 
     print(f'\n{sum(OK)}/{len(OK)} OK  （一時フォルダ {tmp}）')
     return 0 if all(OK) else 1

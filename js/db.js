@@ -1,7 +1,7 @@
 // IndexedDB に保存する
 // projects: 案件 1 件 1 レコード
 // invoices: 請求月 × クライアント ごとの請求書発行・振込の状態
-// deleted : 削除した案件の id と日時（同期先で消し戻されないように残す）
+// deleted : 削除した案件の id と日時（同期先で消し戻されないように残す）。0.18.0 から中身（project）も残してゴミ箱にする
 const DB_NAME = 'anken-kanri';
 const STORES = ['projects', 'invoices', 'deleted'];
 
@@ -48,11 +48,11 @@ const saveInvoice = (r) => run('invoices', 'readwrite', (tx) => tx.objectStore('
 
 const loadDeleted = () => run('deleted', 'readonly', (tx) => tx.objectStore('deleted').getAll());
 
-// 案件を消し、消したことを記録する
-function deleteProject(id, deletedAt) {
+// 案件を消し、消したことを記録する（project を渡すと中身も残す＝ゴミ箱から戻せる）
+function deleteProject(id, deletedAt, project = null) {
   return run(['projects', 'deleted'], 'readwrite', (tx) => {
     tx.objectStore('projects').delete(id);
-    tx.objectStore('deleted').put({ id, deletedAt });
+    tx.objectStore('deleted').put(project ? { id, deletedAt, by: 'アプリ', project } : { id, deletedAt });
   });
 }
 

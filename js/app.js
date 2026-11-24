@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.17.0';
+const APP_VERSION = '0.19.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -43,13 +43,29 @@ async function upsert(p) {
   scheduleSync();
 }
 
+// 消した案件はゴミ箱に入る（中身を残す。設定画面のゴミ箱から戻せる）
 async function remove(id) {
   const deletedAt = nowIso();
+  const project = byId(id) ?? null;
   state.projects = state.projects.filter((p) => p.id !== id);
-  state.deleted.set(id, { id, deletedAt });
-  await deleteProject(id, deletedAt);
+  state.deleted.set(id, project ? { id, deletedAt, by: 'アプリ', project } : { id, deletedAt });
+  await deleteProject(id, deletedAt, project);
   renderAll();
   scheduleSync();
+}
+
+// ゴミ箱：中身が残っていて、いまの案件に無いもの（新しく消した順）
+const trashItems = () => [...state.deleted.values()]
+  .filter((d) => d.project && !byId(d.id))
+  .sort((a, b) => (b.deletedAt ?? '').localeCompare(a.deletedAt ?? ''));
+
+// ゴミ箱から戻す（今の日時で更新するので、同期先でも戻る）
+async function restoreProject(id) {
+  const d = state.deleted.get(id);
+  if (!d?.project || byId(id)) return;
+  await upsert({ ...d.project });
+  if (settingsOpen()) renderTrash();
+  showToast(`「${d.project.title || d.project.client}」をゴミ箱から戻しました`, null);
 }
 
 // 同期用：今のデータ一式
@@ -69,6 +85,22 @@ async function applyData(data) {
   if (data.settings !== undefined) saveSettingsLocal(data.settings);
   if (state.editingId && !byId(state.editingId)) { resetForm(); closeSheet(); }
   renderAll();
+  if (settingsOpen()) renderTrash();
+  refreshQueuedIcons();
+}
+
+// Claude が YouTube・X のリンクを変えたクライアントのアイコンを取り直す（取り込んだ後に 1 回）
+async function refreshQueuedIcons() {
+  if (typeof Link === 'undefined' || !Link.iconQueue?.size) return;
+  const names = [...Link.iconQueue];
+  Link.iconQueue.clear();
+  for (const name of names) {
+    const r = await updateClientIcon(name);
+    linkLog(r.ok ? 'info' : 'warn', r.cleared ? `「${name}」のアイコンを外しました`
+      : r.ok ? `「${name}」のアイコンを${r.from === 'youtube' ? 'YouTube' : 'X'}から取り直しました`
+        : `「${name}」のアイコンを取り直せませんでした：${r.error}`);
+  }
+  if (state.tab === 'prices') renderPriceList();
 }
 
 const byId = (id) => state.projects.find((p) => p.id === id);
@@ -172,6 +204,48 @@ const editorLabel = (name) => name || SELF_LABEL;
 
 function editorTag(p) {
   return isDirector() && p.editor ? `<span class="editor-tag" title="担当編集者">担当 ${esc(p.editor)}</span>` : '';
+}
+
+// ---------- 提出した動画（Claude が PC の提出フォルダから入れる。アプリでは見る・パスをコピーするだけ） ----------
+// deliveries: [{ path, name, label（初稿・二稿・提出など）, size, at（YYYY-MM-DDTHH:MM） }]（古い順）
+const deliveriesOf = (p) => (Array.isArray(p.deliveries) ? p.deliveries : []);
+const deliveryDate = (d) => (d.at ? `${shortDate(d.at.slice(0, 10))} ${d.at.slice(11, 16)}` : '');
+const fileSize = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)}GB` : n >= 1e6 ? `${Math.round(n / 1e6)}MB` : n ? `${Math.round(n / 1e3)}KB` : '');
+const folderOf = (path) => path.replace(/[\\/][^\\/]*$/, '');
+
+// 一覧の案件名の横：いちばん新しい提出（押すとそのパスをコピー）
+function deliveryTag(p) {
+  const list = deliveriesOf(p);
+  if (!list.length) return '';
+  const d = list[list.length - 1];
+  const more = list.length > 1 ? `（全 ${list.length} 本）` : '';
+  return `<button type="button" class="delivery-tag" data-copy-path="${esc(d.path)}"
+    title="${esc(`提出した動画${more}\n${d.path}\n押すとパスをコピー`)}">提出 ${esc(d.label || '提出')} ${shortDate((d.at || '').slice(0, 10))}</button>`;
+}
+
+// 入力画面の「提出した動画」の節（新しい順）
+function renderDeliveries(p) {
+  const list = p ? [...deliveriesOf(p)].reverse() : [];
+  $('f-deliveries-sec').hidden = !list.length;
+  $('f-deliveries').innerHTML = list.map((d) => `
+    <li class="delivery-item">
+      <div class="delivery-head"><span class="delivery-label">${esc(d.label || '提出')}</span><span class="muted">${deliveryDate(d)}${d.size ? ` ・ ${fileSize(d.size)}` : ''}</span></div>
+      <div class="delivery-name" title="${esc(d.path)}">${esc(d.name || d.path)}</div>
+      <div class="delivery-path muted">${esc(folderOf(d.path))}</div>
+      <div class="delivery-btns">
+        <button type="button" class="ghost small" data-copy-path="${esc(d.path)}">パスをコピー</button>
+        <button type="button" class="ghost small" data-copy-path="${esc(folderOf(d.path))}" data-copy-what="フォルダのパス">フォルダのパスをコピー</button>
+      </div>
+    </li>`).join('');
+}
+
+async function copyPath(path, what = 'パス') {
+  try {
+    await navigator.clipboard.writeText(path);
+    showToast(`${what}をコピーしました（エクスプローラーのアドレス欄に貼ると開けます）`, null);
+  } catch {
+    showToast('コピーできませんでした', null);
+  }
 }
 
 // ---------- タブ ----------
@@ -456,6 +530,7 @@ function resetForm({ keepClient = false } = {}) {
   form.priceTouched = false;
   form.billingTouched = false;
   form.feeTouched = false;
+  renderDeliveries(null);
   $('f-price-src').textContent = '';
   $('f-count').value = 1;
   $('f-start').value = todayStr();
@@ -501,6 +576,7 @@ function startEdit(id) {
   $('f-billing').value = p.billingMonth;
   $('f-memo').value = p.memo ?? '';
   $('f-progress').value = p.progress ?? '';
+  renderDeliveries(p);
   $('f-editor').value = p.editor ?? '';
   $('f-fee').value = p.feeUnit ?? '';
   form.priceTouched = true;
@@ -677,10 +753,11 @@ function bindForm() {
   });
   $('btn-delete').addEventListener('click', async () => {
     const p = byId(state.editingId);
-    if (!p || !confirm(`「${p.title || p.client}」を削除します。元に戻せません。`)) return;
+    if (!p || !confirm(`「${p.title || p.client}」をゴミ箱に移します（設定 › ゴミ箱から戻せます）`)) return;
     await remove(p.id);
     resetForm();
     closeSheet();
+    showToast(`「${p.title || p.client}」をゴミ箱に移しました`, () => restoreProject(p.id));
   });
   $('fab-add').addEventListener('click', openNewForm);
 }
@@ -737,6 +814,7 @@ function projectRow(p, { mode }) {
           <span class="kind-tag ${p.kind}">${KIND_LABEL[p.kind]}</span>
           ${mode === 'active' ? stageTag(p) : ''}
           ${mode === 'active' ? progressTag(p) : ''}
+          ${deliveryTag(p)}
           ${editorTag(p)}
           ${p.invoicedAt ? `<span class="issued-tag" title="案件別の請求書を発行済み">請求書発行 ${shortDate(p.invoicedAt)}</span>` : ''}
         </div>
@@ -1755,7 +1833,23 @@ function bindEditorList() {
 function openSettings() {
   $('set-version').textContent = `v${APP_VERSION}`;
   renderLink();
+  renderTrash();
   openPage('settings-view');
+}
+
+// ゴミ箱（設定画面の節）。消した案件を戻せる
+function renderTrash() {
+  const list = trashItems();
+  $('trash-count').textContent = list.length ? `${list.length}件` : '';
+  $('trash-list').innerHTML = list.length ? list.slice(0, 100).map((d) => {
+    const p = d.project;
+    const at = new Date(d.deletedAt);
+    return `<li style="${clientStyle(p.client)}">
+      <span class="trash-main"><span class="trash-title"><span class="client-chip">${esc(p.client)}</span> ${esc(p.title) || '<span class="muted">（案件名なし）</span>'}</span>
+        <small class="muted">${at.getMonth() + 1}/${at.getDate()} に${esc(d.by && d.by !== 'アプリ' ? d.by : '')}${d.by && d.by !== 'アプリ' ? 'が' : ''}削除 ・ 納期 ${shortDate(p.dueDate)} ・ ${yen(amountOf(p))}</small></span>
+      <button type="button" class="ghost small" data-restore="${esc(d.id)}">戻す</button>
+    </li>`;
+  }).join('') : '<li class="muted small-empty">ゴミ箱は空です</li>';
 }
 
 // ---------- Claude 連携（設定画面の節） ----------
@@ -1852,7 +1946,7 @@ async function importData(file) {
   const projects = list.map((p) => ({ ...p, updatedAt: now }));
   const keepIds = new Set(projects.map((p) => p.id));
   const deleted = new Map(state.deleted);
-  for (const p of state.projects) if (!keepIds.has(p.id)) deleted.set(p.id, { id: p.id, deletedAt: now });
+  for (const p of state.projects) if (!keepIds.has(p.id)) deleted.set(p.id, { id: p.id, deletedAt: now, by: 'アプリ', project: p }); // 消える案件はゴミ箱へ
   for (const id of keepIds) deleted.delete(id);
   const invoices = new Map([...state.invoices.values()].map((r) => [r.key, { ...r, invoicedAt: null, paidAt: null, updatedAt: now }]));
   for (const r of Array.isArray(data.invoices) ? data.invoices : []) invoices.set(r.key, { ...r, updatedAt: now });
@@ -1870,8 +1964,9 @@ function bindGlobal() {
     if (b) setTab(b.dataset.tab);
   });
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-make-invoice],[data-project-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter],[data-editor-filter]');
+    const t = e.target.closest('[data-copy-path],[data-make-invoice],[data-project-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter],[data-editor-filter]');
     if (!t) return;
+    if (t.dataset.copyPath != null) { copyPath(t.dataset.copyPath, t.dataset.copyWhat); return; }
     if (t.dataset.editorFilter != null) {
       state.editorFilter = t.dataset.editorFilter === '*' ? null : t.dataset.editorFilter;
       renderActiveList();
@@ -1927,6 +2022,10 @@ function bindGlobal() {
   $('btn-sync').addEventListener('click', onSyncButton);
   $('link-toggle').addEventListener('click', onLinkToggle);
   $('btn-link-copy').addEventListener('click', copyLinkLog);
+  $('trash-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-restore]');
+    if (b) restoreProject(b.dataset.restore);
+  });
   $('btn-data-info').addEventListener('click', () => $('data-info').showModal());
   $('data-info-close').addEventListener('click', () => $('data-info').close());
   // 外側（暗くなった所）を押しても閉じる
