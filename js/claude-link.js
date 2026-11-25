@@ -13,7 +13,7 @@ const LINK_INBOX = 'claude-inbox.json';
 
 // Claude が変えてよい項目（案件）
 const LINK_FIELDS = ['client', 'title', 'kind', 'unitPrice', 'count', 'priceUnit', 'minutes', 'extras', 'startDate', 'dueDate',
-  'billingMonth', 'memo', 'progress', 'stage', 'draftAt', 'revisionAt', 'status', 'completedAt', 'editor', 'feeUnit', 'outsources',
+  'billingMonth', 'memo', 'progress', 'request', 'stage', 'draftAt', 'revisionAt', 'status', 'completedAt', 'editor', 'feeUnit', 'outsources',
   'invoicedAt', 'invoiceSnapshot', 'deliveries'];
 const LINK_REQUIRED = ['client', 'kind', 'unitPrice', 'count', 'startDate', 'dueDate', 'billingMonth'];
 // 請求書・振込の状態（請求月 × クライアント）で Claude が変えてよい項目

@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.19.0';
+const APP_VERSION = '0.20.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -237,6 +237,22 @@ function renderDeliveries(p) {
         <button type="button" class="ghost small" data-copy-path="${esc(folderOf(d.path))}" data-copy-what="フォルダのパス">フォルダのパスをコピー</button>
       </div>
     </li>`).join('');
+}
+
+// 依頼メッセージ（クライアントから来た依頼の文）。一覧のボタンから全文を開く
+function requestTag(p) {
+  if (!p.request) return '';
+  const head = p.request.replace(/\s+/g, ' ').slice(0, 80);
+  return `<button type="button" class="request-tag" data-request="${p.id}" title="${esc(head)}${p.request.length > 80 ? '…' : ''}">✉ 依頼</button>`;
+}
+
+function openRequest(id) {
+  const p = byId(id);
+  if (!p) return;
+  state.requestViewId = id;
+  $('request-view-sub').textContent = `${p.client}${p.title ? ` ・ ${p.title}` : ''}`;
+  $('request-view-text').textContent = p.request || '';
+  $('request-view').showModal();
 }
 
 async function copyPath(path, what = 'パス') {
@@ -576,6 +592,7 @@ function startEdit(id) {
   $('f-billing').value = p.billingMonth;
   $('f-memo').value = p.memo ?? '';
   $('f-progress').value = p.progress ?? '';
+  $('f-request').value = p.request ?? '';
   renderDeliveries(p);
   $('f-editor').value = p.editor ?? '';
   $('f-fee').value = p.feeUnit ?? '';
@@ -623,6 +640,7 @@ function readForm() {
     billingMonth: $('f-billing').value,
     memo: $('f-memo').value.trim(),
     progress: $('f-progress').value.trim(),
+    request: $('f-request').value.trim(),
   };
   if (!v.client) return { error: 'クライアント名を入れてください' };
   if ($('f-price').value === '' || !(v.unitPrice >= 0)) return { error: '単価を入れてください' };
@@ -814,6 +832,7 @@ function projectRow(p, { mode }) {
           <span class="kind-tag ${p.kind}">${KIND_LABEL[p.kind]}</span>
           ${mode === 'active' ? stageTag(p) : ''}
           ${mode === 'active' ? progressTag(p) : ''}
+          ${requestTag(p)}
           ${deliveryTag(p)}
           ${editorTag(p)}
           ${p.invoicedAt ? `<span class="issued-tag" title="案件別の請求書を発行済み">請求書発行 ${shortDate(p.invoicedAt)}</span>` : ''}
@@ -1964,6 +1983,8 @@ function bindGlobal() {
     if (b) setTab(b.dataset.tab);
   });
   document.addEventListener('click', (e) => {
+    const r = e.target.closest('[data-request]');
+    if (r) { openRequest(r.dataset.request); return; }
     const t = e.target.closest('[data-copy-path],[data-make-invoice],[data-project-invoice],[data-stage],[data-done],[data-undone],[data-edit],[data-inv],[data-bill-month],[data-client-filter],[data-editor-filter]');
     if (!t) return;
     if (t.dataset.copyPath != null) { copyPath(t.dataset.copyPath, t.dataset.copyWhat); return; }
@@ -2028,6 +2049,21 @@ function bindGlobal() {
   });
   $('btn-data-info').addEventListener('click', () => $('data-info').showModal());
   $('data-info-close').addEventListener('click', () => $('data-info').close());
+  $('request-view-close').addEventListener('click', () => $('request-view').close());
+  $('request-view').addEventListener('click', (e) => { if (e.target === $('request-view')) $('request-view').close(); });
+  $('request-view-copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(byId(state.requestViewId)?.request ?? '');
+      showToast('依頼メッセージをコピーしました', null);
+    } catch {
+      showToast('コピーできませんでした', null);
+    }
+  });
+  $('request-view-edit').addEventListener('click', () => {
+    $('request-view').close();
+    startEdit(state.requestViewId);
+    $('f-request').scrollIntoView({ block: 'center' });
+  });
   // 外側（暗くなった所）を押しても閉じる
   $('data-info').addEventListener('click', (e) => { if (e.target === $('data-info')) $('data-info').close(); });
   $('btn-sync-stop').addEventListener('click', () => {

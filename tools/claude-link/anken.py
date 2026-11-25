@@ -136,7 +136,12 @@ def backup(*paths: Path) -> Path:
     dest.mkdir(parents=True, exist_ok=True)
     for p in paths:
         if p.exists():
-            shutil.copy2(p, dest / p.name)
+            # .company の案件は どれも「進行.md」なので、.company からの場所を名前にする（clients__<クライアント>__<シリーズ>__…__進行.md）
+            try:
+                name = p.resolve().relative_to(COMPANY.resolve()).as_posix().replace('/', '__')
+            except ValueError:
+                name = p.name
+            shutil.copy2(p, dest / name)
     # 古いバックアップは 60 個まで残す
     olds = sorted(d for d in BACKUP.iterdir() if d.is_dir())
     for d in olds[:-60]:
@@ -756,7 +761,7 @@ def cmd_add(a) -> None:
     proj = {'id': str(uuid.uuid4()), 'client': a.client, 'title': a.title, 'kind': kind, 'unitPrice': price,
             'count': a.count, 'priceUnit': unit if kind == 'long' else 'video', 'minutes': a.minutes,
             'extras': [], 'startDate': a.start or today(), 'dueDate': a.due,
-            'billingMonth': a.billing or a.due[:7], 'memo': a.memo or '', 'progress': a.progress or '',
+            'billingMonth': a.billing or a.due[:7], 'memo': a.memo or '', 'progress': a.progress or '', 'request': a.request or '',
             'status': 'active', 'completedAt': None, 'stage': None}
     if a.editor is not None:
         proj['editor'] = a.editor
@@ -783,7 +788,7 @@ def cmd_set(a) -> None:
     p = find_project(projects_view(m, ib), a.query)
     after = {}
     for opt, key in (('due', 'dueDate'), ('start', 'startDate'), ('billing', 'billingMonth'), ('title', 'title'),
-                     ('memo', 'memo'), ('progress', 'progress'), ('editor', 'editor')):
+                     ('memo', 'memo'), ('progress', 'progress'), ('request', 'request'), ('editor', 'editor')):
         v = getattr(a, opt)
         if v is not None:
             after[key] = v
@@ -1655,18 +1660,33 @@ def to_app_fields(field: str, value: str, p: dict) -> dict:
     return stage_fields(value, p)
 
 
+def job_files() -> list[Path]:
+    """.company の案件の記録（2026-11-25 から clients/<クライアント>/<シリーズ>/<日付_内容>/進行.md。前の production/jobs/*.md も読む）"""
+    new = sorted((COMPANY / 'clients').rglob('進行.md')) if (COMPANY / 'clients').exists() else []
+    old = sorted(j for j in (COMPANY / 'production' / 'jobs').glob('*.md') if not j.name.startswith('_'))         if (COMPANY / 'production' / 'jobs').exists() else []
+    return [j for j in new + old if '_template' not in j.parts and not j.parent.name.startswith('_')]
+
+
+def job_key(job: Path) -> str:
+    """state.json・知らせに使う名前＝.company からの場所（clients/<クライアント>/<シリーズ>/<日付_内容>/進行.md）"""
+    try:
+        return job.resolve().relative_to(COMPANY.resolve()).as_posix()
+    except ValueError:
+        return job.name
+
+
 def cmd_link(a) -> None:
     m, ib = load_mirror(), load_inbox()
     job = Path(a.job)
     if not job.is_absolute():
-        job = COMPANY / 'production' / 'jobs' / job
+        job = next((c for c in (COMPANY / job, COMPANY / 'clients' / job, COMPANY / 'production' / 'jobs' / job) if c.exists()), COMPANY / job)
     p = find_project(projects_view(m, ib), a.query)
     text, fm = read_fm(job)
     dest = backup(job)
     new = write_fm(job, text, {'anken_id': p['id']})
     job.write_text(new, encoding='utf-8', newline='')
-    log(f'結び付け {job.name} ⇔ {p["id"]} （バックアップ {dest.name}）')
-    print(f'{job.name} ⇔ {row(p)}\n次に `company` を実行すると、納期・段階・進行メモがそろいます')
+    log(f'結び付け {job_key(job)} ⇔ {p["id"]} （バックアップ {dest.name}）')
+    print(f'{job_key(job)} ⇔ {row(p)}\n次に `company` を実行すると、納期・段階・進行メモがそろいます')
 
 
 def cmd_company(a) -> None:
@@ -1674,19 +1694,19 @@ def cmd_company(a) -> None:
     view = {p['id']: p for p in projects_view(m, ib)}
     state = json.loads(STATE.read_text(encoding='utf-8')) if STATE.exists() else {}
     patches, job_writes, report = [], {}, []
-    for job in sorted((COMPANY / 'production' / 'jobs').glob('*.md')):
-        if job.name.startswith('_'):
-            continue
+    for job in job_files():
+        key = job_key(job)
         text, fm = read_fm(job)
         pid = fm.get('anken_id')
         if not pid:
             continue
         p = view.get(pid)
         if not p:
-            report.append(f'⚠ {job.name}: アプリに案件 {pid[:8]} がありません（削除された？）')
+            report.append(f'⚠ {key}: アプリに案件 {pid[:8]} がありません（削除された？）')
             continue
         jv, av = job_values(fm), app_values(p)
-        base = state.get(job.name, {}).get('values', {})
+        prev = state.get(key) or next((v for v in state.values() if v.get('id') == pid), {})  # 場所を移した記録は前の名前の値を使う
+        base = prev.get('values', {})
         job_time = dt.datetime.fromtimestamp(job.stat().st_mtime, dt.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
         app_time = p.get('updatedAt') or ''
         to_job, to_app = {}, {}
@@ -1703,22 +1723,24 @@ def cmd_company(a) -> None:
             else:                           # 両方変わった（初めての時も）→ 後から変えた方、同じならアプリ
                 winner = 'company' if job_time > app_time else 'app'
                 (to_app if winner == 'company' else to_job)[f] = j if winner == 'company' else ap
-                report.append(f'⚠ {job.name}: {f} が両方で変わっていた（.company「{j}」/ アプリ「{ap}」）→ '
+                report.append(f'⚠ {key}: {f} が両方で変わっていた（.company「{j}」/ アプリ「{ap}」）→ '
                               f'{"後から変えた .company" if winner == "company" else "アプリ"}の値にした')
         if to_job:
             new_vals = {{'progress': 'status'}.get(k, k): v for k, v in to_job.items()}
             job_writes[job] = write_fm(job, text, new_vals)
-            report.append(f'→ .company {job.name}: {json.dumps(new_vals, ensure_ascii=False)}')
+            report.append(f'→ .company {key}: {json.dumps(new_vals, ensure_ascii=False)}')
         if to_app:
             fields = {}
             for f, v in to_app.items():
                 fields.update(to_app_fields(f, v, p))
-            patch = make_update(m, ib, pid, fields, f'.company {job.name} から')
+            patch = make_update(m, ib, pid, fields, f'.company {key} から')
             if patch:
                 patches.append(patch)
                 report.append(f'→ アプリ「{p.get("title")}」: {json.dumps(patch["after"], ensure_ascii=False)}')
         merged = {f: (to_app.get(f) or to_job.get(f) or jv[f] or av[f]) for f in ('due', 'stage', 'progress')}
-        state[job.name] = {'id': pid, 'values': merged}
+        for k in [k for k, v in state.items() if v.get('id') == pid and k != key]:
+            del state[k]   # 移す前の名前は消す
+        state[key] = {'id': pid, 'values': merged}
     # 提出フォルダの動画（アプリ 0.19.0 から。古い版の写しなら書かずに知らせる）
     try:
         d_patches, d_report = delivery_patches(m, {**ib, 'patches': (ib.get('patches') or []) + patches})
@@ -1737,7 +1759,7 @@ def cmd_company(a) -> None:
         dest = backup(MIRROR, INBOX, STATE, *job_writes.keys())
         for job, new in job_writes.items():
             job.write_text(new, encoding='utf-8', newline='')
-            log(f'.company に反映 {job.name} （バックアップ {dest.name}）')
+            log(f'.company に反映 {job_key(job)} （バックアップ {dest.name}）')
         if patches:
             save_patches(patches, m, ib)
     summary = render_summary(m, load_inbox())  # 今書いたパッチも重ねて出す
@@ -1819,13 +1841,13 @@ def main() -> int:
     s.add_argument('--kind', required=True); s.add_argument('--due', required=True)
     s.add_argument('--price', type=float); s.add_argument('--count', type=int, default=1)
     s.add_argument('--per-minute', action='store_true'); s.add_argument('--minutes', type=float)
-    s.add_argument('--start'); s.add_argument('--billing'); s.add_argument('--memo'); s.add_argument('--progress')
+    s.add_argument('--start'); s.add_argument('--billing'); s.add_argument('--memo'); s.add_argument('--progress'); s.add_argument('--request', help='依頼メッセージ（クライアントから来た依頼の文）')
     s.add_argument('--stage'); s.add_argument('--editor'); s.add_argument('--note')
     s.add_argument('--fee', help='委託単価（円。1分あたりの案件は1分あたり）。「なし」で消す')
     s.add_argument('--outsource', action='append', help='一部の業務の外注「業務:外注先:金額」（何回でも）')
     s.add_argument('--extra', action='append', help='追加料金「名前:単価[:回数]」（何回でも）')
     s = sub.add_parser('set', help='案件を変える（入力画面の「更新」・段階のボタン）'); s.add_argument('query')
-    for o in ('due', 'start', 'billing', 'title', 'memo', 'progress', 'editor', 'stage', 'note', 'client', 'kind', 'price', 'minutes'):
+    for o in ('due', 'start', 'billing', 'title', 'memo', 'progress', 'request', 'editor', 'stage', 'note', 'client', 'kind', 'price', 'minutes'):
         s.add_argument(f'--{o}')
     s.add_argument('--count', type=int)
     s.add_argument('--per-minute', action='store_true', help='単価を 1分あたりに（ロングだけ。--minutes も）')

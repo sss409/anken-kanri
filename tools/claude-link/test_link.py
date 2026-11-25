@@ -107,6 +107,20 @@ def main():
     out = app()
     p = next(p for p in appdata()['projects'] if p['title'] == '1121_続けて')
     check('追加の直後の変更も取り込まれる', p['progress'] == 'つぎ' and 'conflict' not in out, out)
+    # 依頼メッセージ（改行も残る）：add で入れ・set で変え・写しから show で読める
+    req1 = 'お世話になっております！\n1:23:45〜1:25:10 をショートに'
+    claude('add', '--client', '吠瑠うに', '--title', '1122_依頼', '--kind', 'short', '--due', '2026-11-27', '--price', '5000', '--request', req1)
+    app()
+    p = next(p for p in appdata()['projects'] if p['title'] == '1122_依頼')
+    check('add の依頼メッセージをアプリが取り込む', p.get('request') == req1, p)
+    req2 = req1 + '\n【注意点】顔を大きめに'
+    claude('set', '1122_依頼', '--request', req2)
+    app()
+    rc, out = claude('show', '1122_依頼')
+    check('set の依頼メッセージが取り込まれ show で読める',
+          next(p for p in appdata()['projects'] if p['title'] == '1122_依頼').get('request') == req2 and json.loads(out).get('request') == req2, out)
+    claude('delete', '1122_依頼')
+    app()
     # 写しの記録が消えても（別の端末など）二重に足さない
     m = json.loads((link / 'anken-kanri.json').read_text(encoding='utf-8'))
     ib = json.loads((link / 'claude-inbox.json').read_text(encoding='utf-8'))

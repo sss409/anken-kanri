@@ -971,6 +971,13 @@ button.tiny:disabled { opacity: .3; cursor: default; }
 .delivery-name { font-weight: 600; overflow-wrap: anywhere; margin-top: 2px; }
 .delivery-path { font-size: 11px; overflow-wrap: anywhere; }
 .delivery-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.request-tag { font: inherit; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; white-space: nowrap; }
+.request-tag:hover { background: var(--surface-2); }
+.request-view-head { min-width: 0; }
+.request-view-sub { font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+.request-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.8; padding-top: 12px; user-select: text; }
+.request-view-btns { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 18px 14px; border-top: 1px solid var(--border); }
+#f-request { width: 100%; resize: vertical; }
 .progress-tag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--text); max-width: 18em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- ゴミ箱（設定画面） ---------- */

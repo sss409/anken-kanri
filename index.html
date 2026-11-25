@@ -308,6 +308,11 @@
         </section>
 
         <section class="card form-sec">
+          <h3>依頼メッセージ <small class="muted">（クライアントから来た依頼をそのまま貼る。一覧の「✉ 依頼」で全文を見られます）</small></h3>
+          <textarea id="f-request" rows="6" aria-label="依頼メッセージ" placeholder="クライアントから来た依頼の文（DM・チャットなど）を貼り付け"></textarea>
+        </section>
+
+        <section class="card form-sec">
           <h3>メモ</h3>
           <label><span>進行メモ <small>（一覧の案件名の横に出ます。Claude の秘書もここに書きます）</small></span>
             <input id="f-progress" type="text" maxlength="60" placeholder="例: カット初稿提出済み・戻り待ち">
@@ -590,6 +595,24 @@
           <li><b>Google ドライブから</b>：パソコンで Google ドライブを開き、右上の設定 →「アプリを管理」→「案件管理」の「オプション」→「非表示のアプリデータを削除」。</li>
         </ul>
       </section>
+    </div>
+  </dialog>
+
+  <!-- 依頼メッセージを見る（一覧の「✉ 依頼」から開く） -->
+  <dialog class="info-dialog" id="request-view" aria-labelledby="request-view-title">
+    <div class="info-head">
+      <div class="request-view-head">
+        <h2 id="request-view-title">依頼メッセージ</h2>
+        <div class="muted request-view-sub" id="request-view-sub"></div>
+      </div>
+      <button class="ghost icon-btn" id="request-view-close" aria-label="閉じる">✕</button>
+    </div>
+    <div class="info-body">
+      <div class="request-text" id="request-view-text"></div>
+    </div>
+    <div class="request-view-btns">
+      <button class="ghost small" id="request-view-copy">コピー</button>
+      <button class="ghost small" id="request-view-edit">編集</button>
     </div>
   </dialog>
 

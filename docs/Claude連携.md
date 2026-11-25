@@ -50,8 +50,8 @@ Python 3.10 以上、標準ライブラリだけ。`python "E:\個人フォル�
 | 案件タブ | 「初稿」「修正」ボタン（押した日を記録・もう一度で戻す） | `set <案件> --stage 初稿提出\|修正中\|作業中` |
 | 案件タブ | 「完了」ボタン | `done <案件>` |
 | 案件タブ | 「請求書」（案件別の請求書を作る・見る） | `invoice --project <案件>` |
-| 入力画面 | 追加・続けて追加 | `add --client --title --kind short\|long --due [--price] [--count] [--per-minute --minutes] [--start] [--billing] [--stage] [--progress] [--memo] [--editor] [--fee] [--outsource 業務:外注先:金額] [--extra 名前:単価[:回数]]`。単価を省くと単価タブ → 前回の単価 |
-| 入力画面 | 更新（クライアント・案件名・種別・単価・本数・1本／1分あたり・尺・着手日・納期・請求月・メモ・進行メモ） | `set <案件> [--client] [--title] [--kind] [--price] [--count] [--per-minute --minutes \| --per-video] [--start] [--due] [--billing] [--memo] [--progress]` |
+| 入力画面 | 追加・続けて追加 | `add --client --title --kind short\|long --due [--price] [--count] [--per-minute --minutes] [--start] [--billing] [--stage] [--progress] [--memo] [--request] [--editor] [--fee] [--outsource 業務:外注先:金額] [--extra 名前:単価[:回数]]`。単価を省くと単価タブ → 前回の単価 |
+| 入力画面 | 更新（クライアント・案件名・種別・単価・本数・1本／1分あたり・尺・着手日・納期・請求月・メモ・進行メモ・依頼メッセージ） | `set <案件> [--client] [--title] [--kind] [--price] [--count] [--per-minute --minutes \| --per-video] [--start] [--due] [--billing] [--memo] [--progress] [--request]`。依頼メッセージ（クライアントから来た依頼の文、0.20.0〜）は `show` で全文を読める |
 | 入力画面 | 追加料金（行を足す・変える・消す） | `set <案件> --extra 名前:単価[:回数]`（同じ名前は差し替え、`名前:なし` で消す）・`--extras-clear` |
 | 入力画面 | 担当編集者・委託単価・一部の業務の外注 | `set <案件> --editor 名前 --fee 円\|なし --outsource 業務:外注先:金額`（金額 0・なしで消す） |
 | 入力画面 | 削除 | `delete <案件>` → アプリの **ゴミ箱** へ（`trash` で中身、`restore <案件>` で戻す） |
@@ -102,7 +102,7 @@ python anken.py restore 1120_テスト
 
 | コマンド | すること |
 |---|---|
-| `link <jobファイル> <案件>` | `.company/production/jobs/` のファイルに `anken_id` を入れて結び付ける |
+| `link <jobファイル> <案件>` | `.company/clients/<クライアント>/<シリーズ>/<日付_内容>/進行.md`（2026-11-25 から。前の `.company/production/jobs/*.md` も読む）に `anken_id` を入れて結び付ける。場所は `.company` から見た場所でよい |
 | `company [--dry-run]` | 結び付いた jobs とアプリを両方向にそろえ、`.company/secretary/anken-app.md`（進行中の納期・請求月ごとの金額と請求・入金の状態・単価）を作り直す |
 
 - 書く前に、写し・受け箱・書き換える jobs を `.company/.anken/backup/<日時>/` に必ずコピーする（60 回分残す）。書いた内容は `.company/.anken/log.txt`
