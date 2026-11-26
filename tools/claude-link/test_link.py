@@ -94,12 +94,12 @@ def main():
     check('別の項目は両方残る', p['memo'] == 'アプリで書いたメモ' and p['progress'] == '戻り来た・修正中', out)
 
     # 5. 案件の追加（2 回同期しても 1 件）
-    rc, out = claude('add', '--client', '吠瑠うに', '--title', '1120_テスト', '--kind', 'long', '--due', '2026-11-25', '--price', '15000')
+    rc, out = claude('add', '--client', '吠瑠うに', '--title', '1120_テスト', '--kind', 'long', '--due', '2026-11-25', '--start', '2026-11-20', '--price', '15000')
     check('add', rc == 0, out)
     app()
     app()
     check('追加は 1 件だけ', sum(1 for p in appdata()['projects'] if p['title'] == '1120_テスト') == 1)
-    rc, out = claude('add', '--client', '吠瑠うに', '--title', '1120_テスト', '--kind', 'long', '--due', '2026-11-25', '--price', '15000')
+    rc, out = claude('add', '--client', '吠瑠うに', '--title', '1120_テスト', '--kind', 'long', '--due', '2026-11-25', '--start', '2026-11-20', '--price', '15000')
     check('同じ案件は二重に足さない', rc == 1, out)
     # 追加してすぐ（アプリが取り込む前に）変えても、競合にならない
     claude('add', '--client', '吠瑠うに', '--title', '1121_続けて', '--kind', 'long', '--due', '2026-11-26', '--price', '15000', '--progress', 'はじめ')
@@ -331,6 +331,31 @@ def main():
     app()
     check('company が新しい提出を入れる', rc == 0 and '提出した動画 4 本' in out
           and (proj(x['id']).get('deliveries') or [{}])[-1].get('label') == '三稿', out)
+
+    # 作業枠（worklogs、0.21.0）
+    os.environ['FAKE_APP_VERSION'] = '0.20.0'; app(); del os.environ['FAKE_APP_VERSION']
+    rc, out = claude('work', 'start')
+    check('作業枠: アプリが 0.21.0 より前なら止める', rc == 1 and '0.21.0' in out, out)
+    app()
+    rc, out = claude('work', 'start', '--plan', '45', '--at', '9:00')
+    check('作業枠: 始める（名前は枠1）', rc == 0 and '枠1 を始める' in out, out)
+    rc, out = claude('work', 'start', '枠2', '--at', '9:50')
+    check('作業枠: 次を始めると前の枠を終える', rc == 0 and '枠1 を終える（50分）' in out and '枠2 を始める' in out, out)
+    app()
+    logs = [r for r in appdata().get('worklogs', []) if not r.get('deletedAt')]
+    check('作業枠: アプリに 2 枠入る（枠1 は終わり、枠2 は実行中）',
+          len(logs) == 2 and sum(1 for r in logs if r.get('endAt')) == 1 and {r['label'] for r in logs} == {'枠1', '枠2'},
+          json.dumps(logs, ensure_ascii=False))
+    rc, out = claude('work', 'end', '--at', '10:20')
+    app()
+    rc, out = claude('work', 'list')
+    check('作業枠: list で合計と予定', rc == 0 and '2枠・合計 80分（予定 45分）' in out and '+5分' in out, out)
+    rc, out = claude('work', 'end')
+    check('作業枠: 実行中が無ければ end は止める', rc == 1 and '実行中の作業枠がありません' in out, out)
+    rc, out = claude('company')
+    md = (Path(env['ANKEN_COMPANY']) / 'secretary' / 'anken-app.md')
+    check('作業枠: company の anken-app.md に今日の枠', rc == 0 and md.exists() and '今日' in md.read_text(encoding='utf-8')
+          and '2枠・合計 80分' in md.read_text(encoding='utf-8'), out)
 
     print(f'\n{sum(OK)}/{len(OK)} OK  （一時フォルダ {tmp}）')
     return 0 if all(OK) else 1

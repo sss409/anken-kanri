@@ -50,6 +50,7 @@ Python 3.10 以上、標準ライブラリだけ。`python "E:\個人フォル�
 | 案件タブ | 「初稿」「修正」ボタン（押した日を記録・もう一度で戻す） | `set <案件> --stage 初稿提出\|修正中\|作業中` |
 | 案件タブ | 「完了」ボタン | `done <案件>` |
 | 案件タブ | 「請求書」（案件別の請求書を作る・見る） | `invoice --project <案件>` |
+| 作業枠タブ（0.21.0〜） | 始める・終わる・その日の一覧（時刻・名前・案件・予定の分を直す／消す） | `work start [名前] [--plan 分] [--project 案件] [--at HH:MM]`・`work end [--at HH:MM]`・`work list [--date]`。`company` の anken-app.md に昨日・今日の枠が出る |
 | 入力画面 | 追加・続けて追加 | `add --client --title --kind short\|long --due [--price] [--count] [--per-minute --minutes] [--start] [--billing] [--stage] [--progress] [--memo] [--request] [--editor] [--fee] [--outsource 業務:外注先:金額] [--extra 名前:単価[:回数]]`。単価を省くと単価タブ → 前回の単価 |
 | 入力画面 | 更新（クライアント・案件名・種別・単価・本数・1本／1分あたり・尺・着手日・納期・請求月・メモ・進行メモ・依頼メッセージ） | `set <案件> [--client] [--title] [--kind] [--price] [--count] [--per-minute --minutes \| --per-video] [--start] [--due] [--billing] [--memo] [--progress] [--request]`。依頼メッセージ（クライアントから来た依頼の文、0.20.0〜）は `show` で全文を読める |
 | 入力画面 | 追加料金（行を足す・変える・消す） | `set <案件> --extra 名前:単価[:回数]`（同じ名前は差し替え、`名前:なし` で消す）・`--extras-clear` |

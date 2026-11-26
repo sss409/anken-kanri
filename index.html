@@ -26,6 +26,7 @@
     <h1>案件管理 <span class="version" id="app-version"></span></h1>
     <nav class="tabs" id="tabs">
       <button data-tab="list">案件</button>
+      <button data-tab="work"><span class="label-long">作業枠</span><span class="label-short">作業</span></button>
       <button data-tab="clients"><span class="label-long">クライアント別</span><span class="label-short">顧客別</span></button>
       <button data-tab="calendar">カレンダー</button>
       <button data-tab="billing">請求</button>
@@ -69,6 +70,26 @@
         </div>
         <div id="active-list"></div>
       </div>
+    </section>
+
+    <!-- 作業枠（枠の始めと終わり） -->
+    <section class="view" id="view-work">
+      <div class="view-head"><h2>作業枠</h2></div>
+      <div id="work-now"></div>
+      <div class="card work-start" id="work-start-form">
+        <input id="work-label" maxlength="40" aria-label="枠の名前（空なら 枠1・枠2…）">
+        <select id="work-project" aria-label="案件"></select>
+        <input type="number" id="work-plan" min="0" step="5" placeholder="予定(分)" aria-label="予定の分">
+        <button class="primary" id="btn-work-start">始める</button>
+      </div>
+      <div class="work-day-bar">
+        <button class="ghost icon-btn" id="btn-work-prev" aria-label="前の日">‹</button>
+        <strong id="work-date"></strong>
+        <button class="ghost icon-btn" id="btn-work-next" aria-label="次の日">›</button>
+        <button class="ghost" id="btn-work-today">今日</button>
+        <span class="muted" id="work-summary"></span>
+      </div>
+      <div id="work-list"></div>
     </section>
 
     <!-- クライアント別 -->
@@ -624,6 +645,7 @@
   <script src="js/sync.js"></script>
   <script src="js/claude-link.js"></script>
   <script src="js/invoice.js"></script>
+  <script src="js/work.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

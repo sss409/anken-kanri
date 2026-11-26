@@ -1675,6 +1675,113 @@ def job_key(job: Path) -> str:
         return job.name
 
 
+# ---------- 作業枠（worklogs、アプリ 0.21.0 から） ----------
+# オーナーが「枠1 始め」「枠1 終わり」と言ったら秘書が書く。記録はアプリの作業枠タブに出る
+
+WORK_APP = (0, 21, 0)
+
+
+def worklogs_view(m: dict, ib: dict) -> dict:
+    """写しの作業枠に、まだ取り込まれていない受け箱の worklog を重ねたもの（id → 記録）"""
+    out = {r['id']: dict(r) for r in (m.get('data') or {}).get('worklogs') or []}
+    for patch in sorted(pending(m, ib), key=lambda x: x.get('at', '')):
+        if patch.get('op') != 'worklog':
+            continue
+        lid = patch.get('logId')
+        r = out.setdefault(lid, {'id': lid, 'label': '', 'projectId': None, 'planMin': None, 'endAt': None, 'deletedAt': None})
+        r.update(patch.get('after') or {})
+        r['_pending'] = True
+    return out
+
+
+def work_minutes(r: dict, now: dt.datetime | None = None) -> int:
+    s = dt.datetime.fromisoformat(r['startAt'].replace('Z', '+00:00'))
+    e = dt.datetime.fromisoformat(r['endAt'].replace('Z', '+00:00')) if r.get('endAt') else (now or dt.datetime.now(dt.timezone.utc))
+    return max(0, round((e - s).total_seconds() / 60))
+
+
+def work_hhmm(iso: str | None) -> str:
+    if not iso:
+        return ''
+    return dt.datetime.fromisoformat(iso.replace('Z', '+00:00')).astimezone().strftime('%H:%M')
+
+
+def work_at(v: str | None, date: str, after: str | None = None) -> str:
+    """--at HH:MM（その日のその時刻）を ISO に。無ければ今。終わりが始めより前なら翌日"""
+    if not v:
+        return now_iso()
+    mt = re.fullmatch(r'(\d{1,2})[:：](\d{2})', v.strip())
+    if not mt:
+        raise Stop(f'--at は HH:MM で書いてください: {v}')
+    d = dt.datetime.combine(dt.date.fromisoformat(date), dt.time(int(mt[1]), int(mt[2]))).astimezone()
+    if after and d < dt.datetime.fromisoformat(after.replace('Z', '+00:00')):
+        d += dt.timedelta(days=1)
+    return d.astimezone(dt.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+
+def work_of_day(w: dict, date: str) -> list[dict]:
+    return sorted([r for r in w.values() if r.get('date') == date and not r.get('deletedAt') and r.get('startAt')],
+                  key=lambda r: r['startAt'])
+
+
+def work_running(w: dict) -> dict | None:
+    rs = [r for r in w.values() if not r.get('deletedAt') and not r.get('endAt') and r.get('startAt')]
+    return max(rs, key=lambda r: r['startAt']) if rs else None
+
+
+def work_line(r: dict, ps: dict) -> str:
+    m = work_minutes(r)
+    p = ps.get(r.get('projectId') or '')
+    plan = f'（予定 {r["planMin"]}分・{"+" if m > r["planMin"] else ""}{m - r["planMin"]}分）' if r.get('planMin') else ''
+    return (f'- {r.get("label") or "枠"} {work_hhmm(r["startAt"])}〜{work_hhmm(r.get("endAt")) or "（実行中）"} {m}分{plan}'
+            f'{" ・ " + p["client"] + "｜" + (p.get("title") or "") if p else ""}{" ※取り込み待ち" if r.get("_pending") else ""}')
+
+
+def next_work_label(w: dict, date: str) -> str:
+    nums = [int(mt[1]) for r in work_of_day(w, date) if (mt := re.match(r'枠\s*(\d+)', r.get('label') or ''))]
+    return f'枠{max(nums) + 1 if nums else 1}'
+
+
+def cmd_work(a) -> None:
+    m, ib = load_mirror(), load_inbox()
+    w = worklogs_view(m, ib)
+    date = a.date or today()
+    ps = {p['id']: p for p in projects_view(m, ib)}
+    if a.action == 'list':
+        day = work_of_day(w, date)
+        total = sum(work_minutes(r) for r in day)
+        plan = sum(r.get('planMin') or 0 for r in day)
+        print(f'{date} の作業枠: {len(day)}枠・合計 {total}分{f"（予定 {plan}分）" if plan else ""}')
+        for r in day:
+            print(work_line(r, ps))
+        return
+    if app_version(m) < WORK_APP:
+        raise Stop(f'作業枠はアプリ v{".".join(map(str, WORK_APP))} 以降が取り込みます。写しは v{m.get("appVersion") or "?"} が書いたもの。'
+                   '新しい版を公開して、アプリを開いて同期してから使ってください')
+    cur = work_running(w)
+    patches, say = [], []
+    if a.action == 'end':
+        if not cur:
+            raise Stop('実行中の作業枠がありません（list で今日の記録を見られます）')
+        end = work_at(a.at, cur['date'], cur['startAt'])
+        patches.append(new_patch('worklog', a.note or '', logId=cur['id'], before={'endAt': None}, after={'endAt': end}))
+        done = {**cur, 'endAt': end}
+        plan = f'・予定 {cur["planMin"]}分' if cur.get('planMin') else ''
+        say.append(f'{cur.get("label")} を終える（{work_hhmm(cur["startAt"])}〜{work_hhmm(end)} {work_minutes(done)}分{plan}）')
+    else:  # start
+        start = work_at(a.at, date)
+        if cur:
+            patches.append(new_patch('worklog', '次の枠を始めたので終える', logId=cur['id'], before={'endAt': None}, after={'endAt': start}))
+            say.append(f'{cur.get("label")} を終える（{work_minutes({**cur, "endAt": start})}分）')
+        label = a.label or next_work_label(w, date)
+        after = {'date': date, 'label': label, 'startAt': start, 'endAt': None, 'deletedAt': None,
+                 'planMin': a.plan, 'projectId': find_project(list(ps.values()), a.project)['id'] if a.project else None}
+        patches.append(new_patch('worklog', a.note or '', logId=f'w-{uuid.uuid4().hex[:12]}', after=after))
+        plan = f'・予定 {a.plan}分' if a.plan else ''
+        say.append(f'{label} を始める（{work_hhmm(start)}{plan}）')
+    save_and_say(patches, m, ib, ' → '.join(say))
+
+
 def cmd_link(a) -> None:
     m, ib = load_mirror(), load_inbox()
     job = Path(a.job)
@@ -1782,6 +1889,17 @@ def render_summary(m: dict, ib: dict) -> str:
              'source: "案件管理アプリの写し（tools/claude-link/anken.py company が作る。手で書かない）"', '---', '',
              '# 案件管理アプリから（納期・請求・入金）', '',
              f'- {mirror_age_note(m)}。単価・請求・入金はアプリが正。ここは毎回作り直す', '']
+    w = worklogs_view(m, ib)
+    psd = {p['id']: p for p in ps}
+    yday = (dt.date.fromisoformat(t) - dt.timedelta(days=1)).isoformat()
+    if any(work_of_day(w, d) for d in (yday, t)):
+        lines += ['## 作業枠（アプリの作業枠タブ。日次の「枠の実績」はここから写す）', '']
+        for d, name in ((yday, '昨日'), (t, '今日')):
+            day = work_of_day(w, d)
+            if day:
+                lines.append(f'- **{name} {d}**: {len(day)}枠・合計 {sum(work_minutes(r) for r in day)}分')
+                lines += ['  ' + work_line(r, psd) for r in day]
+        lines.append('')
     lines += ['## 進行中（納期順）', '']
     if not active:
         lines.append('- なし')
@@ -1895,6 +2013,10 @@ def main() -> int:
     s = sub.add_parser('deliveries', help='提出フォルダの動画を案件に入れる（--all で古い完了済みも）')
     s.add_argument('--dry-run', action='store_true'); s.add_argument('--all', action='store_true')
     s = sub.add_parser('link', help='jobs のファイルに案件を結び付ける'); s.add_argument('job'); s.add_argument('query')
+    s = sub.add_parser('work', help='作業枠（start [名前] で始める・end で終える・list でその日の記録）')
+    s.add_argument('action', choices=['start', 'end', 'list']); s.add_argument('label', nargs='?')
+    s.add_argument('--plan', type=int, help='予定の分'); s.add_argument('--project', help='結び付ける案件')
+    s.add_argument('--at', help='時刻 HH:MM（無ければ今）'); s.add_argument('--date', help='YYYY-MM-DD（無ければ今日）'); s.add_argument('--note')
     a = ap.parse_args()
     for k in ('price', 'minutes'):
         v = getattr(a, k, None)
@@ -1906,7 +2028,7 @@ def main() -> int:
          'billing': cmd_billing, 'bill': cmd_bill, 'director': cmd_director, 'calendar': cmd_calendar, 'clients': cmd_clients,
          'price': cmd_price, 'extra-item': cmd_extra_item, 'editor': cmd_editor, 'setting': cmd_setting, 'invoice': cmd_invoice,
          'export': cmd_export, 'import': cmd_import,
-         'company': cmd_company, 'deliveries': cmd_deliveries, 'link': cmd_link}[a.cmd](a)
+         'company': cmd_company, 'deliveries': cmd_deliveries, 'link': cmd_link, 'work': cmd_work}[a.cmd](a)
     except Stop as e:
         print(f'止めました: {e}', file=sys.stderr)
         return 1

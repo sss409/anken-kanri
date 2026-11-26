@@ -93,12 +93,17 @@ function linkSet(obj, path, value, remove = false) {
   return root;
 }
 
-// data: { projects, invoices, deleted, settings }、patches: 受け箱の中身、doneIds: もう処理したパッチの id
+// 作業枠で Claude が変えられる項目（0.21.0）
+const LINK_WORKLOG_FIELDS = ['date', 'label', 'projectId', 'planMin', 'startAt', 'endAt', 'deletedAt'];
+const pickWorkFields = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => LINK_WORKLOG_FIELDS.includes(k)));
+
+// data: { projects, invoices, deleted, worklogs, settings }、patches: 受け箱の中身、doneIds: もう処理したパッチの id
 // 返り値: { data, results, changed, iconClients }
 function applyClaudePatches(data, patches, doneIds, now = new Date().toISOString()) {
   let projects = data.projects.map((p) => ({ ...p }));
   const invoices = new Map((data.invoices ?? []).map((r) => [r.key, { ...r }]));
   const deleted = new Map((data.deleted ?? []).map((d) => [d.id, { ...d }]));
+  const worklogs = new Map((data.worklogs ?? []).map((r) => [r.id, { ...r }]));
   let settings = data.settings ?? null;
   const results = [];
   const iconClients = new Set();
@@ -256,6 +261,35 @@ function applyClaudePatches(data, patches, doneIds, now = new Date().toISOString
           settings = { ...d.settings, ...(icons && !d.settings.clientIcons ? { clientIcons: icons } : {}), updatedAt: now };
         }
         changed = true;
+      } else if (patch.op === 'worklog') {
+        // 作業枠の記録（0.21.0）：秘書が「枠1 始め」「枠1 終わり」を聞いて書く。項目ごとに 3 方向で当てる
+        const after = patch.after ?? {};
+        const before = patch.before ?? {};
+        const id = patch.logId ?? '';
+        if (!id) throw new Error('logId がありません');
+        const cur = worklogs.get(id);
+        res.title = `作業枠 ${after.label ?? cur?.label ?? ''}`.trim();
+        if (!cur) {
+          if (!after.startAt || !after.date) throw new Error('新しい作業枠には date と startAt が要ります');
+          worklogs.set(id, { id, label: '', projectId: null, planMin: null, endAt: null, deletedAt: null, ...pickWorkFields(after), updatedAt: now, changedBy: by });
+          res.fields = Object.keys(pickWorkFields(after));
+          changed = true;
+        } else {
+          const set = [];
+          const kept = [];
+          for (const k of Object.keys(after)) {
+            if (!LINK_WORKLOG_FIELDS.includes(k)) { kept.push(`${k}（変えられない項目）`); continue; }
+            const d = decide(cur[k] ?? null, before[k] ?? null, k in before, after[k], cur.updatedAt);
+            if (d === 'set') set.push(k); else if (d === 'keep') kept.push(k);
+          }
+          if (set.length) {
+            const nr = { ...cur, updatedAt: now, changedBy: by };
+            for (const k of set) nr[k] = after[k];
+            worklogs.set(id, nr);
+            changed = true;
+          }
+          finish(set, kept);
+        }
       } else {
         throw new Error(`知らない操作: ${patch.op}`);
       }
@@ -266,7 +300,7 @@ function applyClaudePatches(data, patches, doneIds, now = new Date().toISOString
     results.push(res);
   }
   return {
-    data: { ...data, projects, invoices: [...invoices.values()], deleted: [...deleted.values()], settings },
+    data: { ...data, projects, invoices: [...invoices.values()], deleted: [...deleted.values()], worklogs: [...worklogs.values()], settings },
     results, changed, iconClients: [...iconClients],
   };
 }
@@ -354,7 +388,7 @@ async function claudeExchange(merged) {
     app: 'anken-kanri-mirror', version: 1, appVersion: typeof APP_VERSION === 'string' ? APP_VERSION : '',
     savedAt, device, writes,
     note: 'アプリが同期のたびに書く写し。Claude は読むだけで、変更は claude-inbox.json に書く',
-    data: { projects: data.projects, invoices: data.invoices, deleted: data.deleted, settings: data.settings ? settingsLite : null },
+    data: { projects: data.projects, invoices: data.invoices, deleted: data.deleted, worklogs: data.worklogs ?? [], settings: data.settings ? settingsLite : null },
     claude: { results: [...results, ...prevResults].slice(0, 300) },
   };
   await drive(`https://www.googleapis.com/upload/drive/v3/files/${ids.mirror}?uploadType=media`, {

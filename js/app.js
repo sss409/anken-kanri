@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.20.0';
+const APP_VERSION = '0.21.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -9,6 +9,7 @@ const state = {
   projects: [],
   invoices: new Map(), // "YYYY-MM|クライアント" → { invoicedAt, paidAt }
   deleted: new Map(),  // 削除した案件 id → { id, deletedAt }
+  worklogs: new Map(), // 作業枠の記録 id → { id, date, label, startAt, endAt, … }（work.js）
   settings: null,      // 請求書の設定 { myName, bank, note, addressees: { クライアント: 宛名 }, updatedAt }
   tab: 'list',
   clientFilter: '',    // クライアント別タブで絞り込むクライアント（空ならすべて）
@@ -72,6 +73,7 @@ async function restoreProject(id) {
 function localData() {
   return {
     projects: state.projects, invoices: [...state.invoices.values()], deleted: [...state.deleted.values()],
+    worklogs: [...state.worklogs.values()],
     settings: state.settings,
   };
 }
@@ -82,6 +84,7 @@ async function applyData(data) {
   state.projects = data.projects;
   state.invoices = new Map(data.invoices.map((r) => [r.key, r]));
   state.deleted = new Map(data.deleted.map((d) => [d.id, d]));
+  state.worklogs = new Map((data.worklogs ?? []).map((r) => [r.id, r]));
   if (data.settings !== undefined) saveSettingsLocal(data.settings);
   if (state.editingId && !byId(state.editingId)) { resetForm(); closeSheet(); }
   renderAll();
@@ -283,6 +286,9 @@ function renderAll() {
   if (state.tab === 'done') renderDoneList();
   if (state.tab === 'prices') renderPricesTab();
   if (state.tab === 'director') renderDirector();
+  if (state.tab === 'work') renderWork();
+  // 枠が走っている間は、どのタブにいてもタブの印で分かるように
+  $('tabs').querySelector('[data-tab="work"]')?.classList.toggle('running', !!workRunning());
 }
 
 // ---------- 入力フォーム ----------
@@ -2139,13 +2145,15 @@ async function init() {
   bindPeriod();
   bindExtraItems();
   bindEditorList();
+  bindWork();
   resetForm();
   state.settings = loadSettingsLocal();
   state.projects = await loadAll();
   state.invoices = new Map((await loadInvoices()).map((r) => [r.key, r]));
   state.deleted = new Map((await loadDeleted()).map((d) => [d.id, d]));
+  state.worklogs = new Map((await loadWorklogs()).map((r) => [r.id, r]));
   const tab = prefGet('tab', 'list');
-  setTab(['list', 'clients', 'calendar', 'billing', 'done', 'prices', 'director'].includes(tab) ? tab : 'list');
+  setTab(['list', 'work', 'clients', 'calendar', 'billing', 'done', 'prices', 'director'].includes(tab) ? tab : 'list');
   loadLinkState();
   Link.onChange = () => { if (settingsOpen()) renderLink(); };
   initSync({ getLocal: localData, applyMerged: applyData, onStatus: renderSyncStatus });
