@@ -1,6 +1,8 @@
 # 変更履歴
 
 ## 未リリース
+- Claude から同期（アプリを開かなくても）: `tools/claude-link/drive-sync.cjs`（login・sync・status）。アプリと同じ Google Cloud プロジェクトの「デスクトップ アプリ」用 OAuth クライアントで、appDataFolder のデータに受け箱を当てて書き戻し、写しを書く。当て方・写しの形はアプリの js/claude-link.js・js/sync.js をそのまま使う。秘密は %APPDATA%\anken-kanri-claude（リポジトリの外）
+- anken.py `sync`（同期 1 回分）。`company` は先に同期する（`--no-sync` で飛ばす・ログイン前は黙って飛ばす）。同期した写しの控え（.company/.anken/mirror-cache.json）が G:\ の写しより新しければそちらを読む
 
 ## 0.23.0 - 2026-11-26
 - 作業枠の記録の仕方を作り替え。作業の種類・案件のボタンを押すだけで、前の作業が終わって次が始まる

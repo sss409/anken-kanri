@@ -4,6 +4,7 @@
 """
 import json
 import os
+os.environ['ANKEN_NO_DRIVE_SYNC'] = '1'  # テストでは本物のドライブにつながない
 import subprocess
 import sys
 import tempfile

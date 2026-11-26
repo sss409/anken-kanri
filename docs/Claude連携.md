@@ -33,6 +33,19 @@
 - 写しはアプリを開いて同期した時に新しくなる（開いている間は 5 分ごと）。PC で常に開いておく必要はない。Claude の変更も、アプリを次に開いた時に入る
 - ログインは約 1 時間で切れる（いままでどおり）。切れたらヘッダーの同期ボタンを押す
 
+## Claude から同期（アプリを開かなくても）
+
+`node tools/claude-link/drive-sync.cjs sync`（anken.py の `sync`、`company` も先にこれを回す）で、アプリの同期 1 回分を Claude がする。
+アプリのデータ（appDataFolder）を読み → 受け箱（G:\ の claude-inbox.json）を当て → 変わっていれば書き戻し → 写しを書く。当て方はアプリの `applyClaudePatches`・`claudeExchange` をそのまま使う。
+ほかの端末は、いままでどおり次の同期で取り込む。写しはドライブ（PC 版）が G:\ に届けるまで少しかかるので、その間 anken.py は控え（`.company/.anken/mirror-cache.json`）を読む。
+
+### はじめに（PC で 1 回）
+1. Google Cloud コンソールで、アプリのクライアント ID（js/config.js）がある **同じプロジェクト** を開く → API とサービス → 認証情報 → 認証情報を作成 → OAuth クライアント ID → 種類「デスクトップ アプリ」で作る → JSON をダウンロード
+2. その JSON を `%APPDATA%\anken-kanri-claude\client.json` に置く（リポジトリには入れない）
+3. `node tools/claude-link/drive-sync.cjs login` → ブラウザで同じアカウントでログインして許可（チェックは全部）→ 「ログインしました」
+- OAuth 同意画面の公開ステータスが「テスト」のままだと、7 日でログインが切れる（`login` をやり直す）。使う権限は drive.appdata・drive.file だけ
+- 別のプロジェクトのクライアントだと、アプリのデータも連携フォルダも見えない（403・404・「アプリのデータがドライブにありません」）
+
 ## Claude 側（anken.py）
 
 Python 3.10 以上、標準ライブラリだけ。`python "E:\個人フォルダ\案件管理\tools\claude-link\anken.py" <コマンド>`（`<コマンド> -h` で使える指定の一覧）

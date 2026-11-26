@@ -41,6 +41,8 @@ MIRROR = LINK_DIR / 'anken-kanri.json'
 INBOX = LINK_DIR / 'claude-inbox.json'
 WORK = COMPANY / '.anken'
 STATE = WORK / 'state.json'
+MIRROR_CACHE = WORK / 'mirror-cache.json'  # drive-sync.cjs が書いた写しの控え（G:\ に届くまでの間）
+DRIVE_SYNC = Path(__file__).with_name('drive-sync.cjs')
 BACKUP = WORK / 'backup'
 LOG = WORK / 'log.txt'
 BY = os.environ.get('ANKEN_BY', '秘書')
@@ -95,6 +97,11 @@ def read_json(path: Path) -> dict:
 
 def load_mirror() -> dict:
     m = read_json(MIRROR)
+    # Claude から同期した直後は、G:\ の写しより控えの方が新しい
+    if MIRROR_CACHE.exists():
+        c = read_json(MIRROR_CACHE)
+        if c.get('app') == 'anken-kanri-mirror' and str(c.get('savedAt', '')) > str(m.get('savedAt', '')):
+            m = c
     if m.get('app') != 'anken-kanri-mirror':
         raise Stop(f'{MIRROR.name} がまだ空です。アプリを開いて同期してください')
     return m
@@ -1932,7 +1939,36 @@ def cmd_link(a) -> None:
     print(f'{job_key(job)} ⇔ {row(p)}\n次に `company` を実行すると、納期・段階・進行メモがそろいます')
 
 
+def run_drive_sync(quiet_missing: bool = False) -> bool:
+    """Claude から同期 1 回分（drive-sync.cjs）。ログイン前なら quiet_missing で黙って飛ばす"""
+    if os.environ.get('ANKEN_NO_DRIVE_SYNC'):
+        return False
+    try:
+        r = subprocess.run(['node', str(DRIVE_SYNC), 'sync'], capture_output=True, text=True, encoding='utf-8', timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f'⚠ Claude からの同期ができませんでした（{e}）。前の写しで続けます')
+        return False
+    if r.returncode == 3 and quiet_missing:
+        print(f'（Claude からの同期は未設定: {r.stderr.strip().lstrip("✗ ")}）')
+        return False
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode != 0:
+        print(f'⚠ Claude からの同期ができませんでした: {out}。前の写しで続けます')
+        return False
+    last = out.splitlines()[-1] if out else ''
+    warns = [l for l in out.splitlines() if l.startswith('⚠')]
+    print('\n'.join(warns + [last]))
+    return True
+
+
+def cmd_sync(a) -> None:
+    if not run_drive_sync():
+        raise Stop('同期できませんでした')
+
+
 def cmd_company(a) -> None:
+    if not a.dry_run and not a.no_sync:
+        run_drive_sync(quiet_missing=True)
     m, ib = load_mirror(), load_inbox()
     view = {p['id']: p for p in projects_view(m, ib)}
     state = json.loads(STATE.read_text(encoding='utf-8')) if STATE.exists() else {}
@@ -2148,7 +2184,8 @@ def main() -> int:
     s.add_argument('--note')
     s = sub.add_parser('export', help='書き出し（アプリの「書き出し」と同じ形の JSON）'); s.add_argument('--out')
     s = sub.add_parser('import', help='読み込み（置き換え。消える案件はゴミ箱へ）'); s.add_argument('file'); s.add_argument('--yes', action='store_true'); s.add_argument('--note')
-    s = sub.add_parser('company', help='.company の jobs とそろえ、anken-app.md を作り直す'); s.add_argument('--dry-run', action='store_true')
+    s = sub.add_parser('company', help='Claude から同期してから、.company の jobs とそろえ、anken-app.md を作り直す'); s.add_argument('--dry-run', action='store_true'); s.add_argument('--no-sync', action='store_true', help='Claude からの同期をしない')
+    sub.add_parser('sync', help='Claude から同期 1 回分（アプリを開かずに受け箱を取り込み、写しを新しくする。drive-sync.cjs）')
     s = sub.add_parser('deliveries', help='提出フォルダの動画を案件に入れる（--all で古い完了済みも）')
     s.add_argument('--dry-run', action='store_true'); s.add_argument('--all', action='store_true')
     s = sub.add_parser('link', help='jobs のファイルに案件を結び付ける'); s.add_argument('job'); s.add_argument('query')
@@ -2170,7 +2207,7 @@ def main() -> int:
          'billing': cmd_billing, 'bill': cmd_bill, 'director': cmd_director, 'calendar': cmd_calendar, 'clients': cmd_clients,
          'price': cmd_price, 'extra-item': cmd_extra_item, 'editor': cmd_editor, 'setting': cmd_setting, 'invoice': cmd_invoice,
          'export': cmd_export, 'import': cmd_import,
-         'company': cmd_company, 'deliveries': cmd_deliveries, 'link': cmd_link, 'work': cmd_work}[a.cmd](a)
+         'company': cmd_company, 'sync': cmd_sync, 'deliveries': cmd_deliveries, 'link': cmd_link, 'work': cmd_work}[a.cmd](a)
     except Stop as e:
         print(f'止めました: {e}', file=sys.stderr)
         return 1
