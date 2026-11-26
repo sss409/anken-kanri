@@ -56,6 +56,8 @@
       </button>
       <input type="file" id="import-file" accept=".json,application/json" hidden>
     </div>
+    <!-- 記録中の作業（どのタブでも出る） -->
+    <div class="work-strip" id="work-strip" hidden></div>
   </header>
 
   <main>
@@ -72,23 +74,32 @@
       </div>
     </section>
 
-    <!-- 作業枠（枠の始めと終わり） -->
+    <!-- 作業枠（種類・案件のボタンで切り替える。0.23.0） -->
     <section class="view" id="view-work">
       <div class="view-head"><h2>作業枠</h2></div>
       <div id="work-now"></div>
-      <div class="card work-start" id="work-start-form">
-        <input id="work-label" maxlength="40" aria-label="枠の名前（空なら 枠1・枠2…）">
-        <select id="work-project" aria-label="案件"></select>
-        <input type="number" id="work-plan" min="0" step="5" placeholder="予定(分)" aria-label="予定の分">
-        <button class="primary" id="btn-work-start">始める</button>
+      <div class="card work-pad">
+        <div class="work-pad-label">作業の種類</div>
+        <div class="work-btns" id="work-kind-btns"></div>
+        <div class="work-pad-label">案件</div>
+        <div class="work-btns" id="work-project-btns"></div>
+        <div class="work-pad-actions">
+          <button class="ghost" id="btn-work-blank">始める（中身はあとで）</button>
+          <button class="primary" id="btn-work-end" hidden>終わる</button>
+        </div>
       </div>
       <div class="work-day-bar">
-        <button class="ghost icon-btn" id="btn-work-prev" aria-label="前の日">‹</button>
+        <div class="segmented work-unit" id="work-unit">
+          <button data-unit="day">日</button>
+          <button data-unit="week">週</button>
+          <button data-unit="month">月</button>
+        </div>
+        <button class="ghost icon-btn" id="btn-work-prev" aria-label="前へ">‹</button>
         <strong id="work-date"></strong>
-        <button class="ghost icon-btn" id="btn-work-next" aria-label="次の日">›</button>
+        <button class="ghost icon-btn" id="btn-work-next" aria-label="次へ">›</button>
         <button class="ghost" id="btn-work-today">今日</button>
-        <span class="muted" id="work-summary"></span>
       </div>
+      <div id="work-summary"></div>
       <div id="work-list"></div>
     </section>
 
@@ -441,10 +452,10 @@
             <input data-bank="holder" placeholder="例：〇〇 〇〇">
           </label>
         </fieldset>
-        <label>備考
+        <label>備考 <small class="muted">（この請求書だけ）</small>
           <textarea id="iv-note" rows="2"></textarea>
         </label>
-        <p class="iv-hint">宛名と様／御中（クライアントごと）・自分の名前・住所・電話番号・お振込先・備考は次からも自動で入ります（同期もされます）。<br>
+        <p class="iv-hint">宛名と様／御中（クライアントごと）・自分の名前・住所・電話番号・お振込先は次からも自動で入ります（同期もされます）。備考はこの請求書にだけ残ります。<br>
           「PDFで保存」を押すと PDF ファイルがこの端末に保存されます（PC では保存する場所を選べます）。ファイル名は請求タブの「請求書のファイル名の決まり」で変えられます。保存すると、<span id="iv-issue-hint"></span>「請求書 発行済」になります。</p>
       </form>
       <!-- 発行した請求書（控え）を見ているときだけ、入力欄の代わりに出す -->
@@ -503,6 +514,16 @@
           <button class="ghost small" id="btn-link-copy">ログをコピー</button>
         </div>
         <ol class="link-log" id="link-log"></ol>
+      </section>
+
+      <section class="card set-section">
+        <h3>作業の種類</h3>
+        <p class="set-help">作業枠タブのボタンに並ぶ種類です。「‹」で前へ動かせます。外しても、今までの記録はそのまま残ります（「休憩」は初めからあります）。</p>
+        <div class="editor-list" id="work-kind-list"></div>
+        <form class="editor-add" id="work-kind-add-form" autocomplete="off">
+          <input id="work-kind-add-name" maxlength="20" placeholder="種類の名前（例：サムネ）">
+          <button type="submit" class="primary">足す</button>
+        </form>
       </section>
 
       <section class="card set-section" id="trash-section">

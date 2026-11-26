@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.21.0';
+const APP_VERSION = '0.23.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -9,7 +9,7 @@ const state = {
   projects: [],
   invoices: new Map(), // "YYYY-MM|クライアント" → { invoicedAt, paidAt }
   deleted: new Map(),  // 削除した案件 id → { id, deletedAt }
-  worklogs: new Map(), // 作業枠の記録 id → { id, date, label, startAt, endAt, … }（work.js）
+  worklogs: new Map(), // 作業枠の記録 id → { id, date, kind, projectId, isBreak, memo, startAt, endAt, … }（work.js）
   settings: null,      // 請求書の設定 { myName, bank, note, addressees: { クライアント: 宛名 }, updatedAt }
   tab: 'list',
   clientFilter: '',    // クライアント別タブで絞り込むクライアント（空ならすべて）
@@ -287,8 +287,9 @@ function renderAll() {
   if (state.tab === 'prices') renderPricesTab();
   if (state.tab === 'director') renderDirector();
   if (state.tab === 'work') renderWork();
-  // 枠が走っている間は、どのタブにいてもタブの印で分かるように
+  // 記録している間は、どのタブにいてもタブの印と上の帯で分かるように
   $('tabs').querySelector('[data-tab="work"]')?.classList.toggle('running', !!workRunning());
+  renderWorkStrip();
 }
 
 // ---------- 入力フォーム ----------
@@ -1859,6 +1860,7 @@ function openSettings() {
   $('set-version').textContent = `v${APP_VERSION}`;
   renderLink();
   renderTrash();
+  renderWorkKindList();
   openPage('settings-view');
 }
 

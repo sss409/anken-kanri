@@ -283,6 +283,25 @@ def main():
         pdf = list((tmp / 'pdf').glob('*.pdf'))
         check('PDF を作る（Edge）', rc == 0 and pdf and pdf[0].read_bytes()[:4] == b'%PDF', out)
 
+    # 備考は請求書ごと（0.22.0）。前の版の共通の備考は使わない
+    claude('setting', '--note', '別のクライアントのメモ')
+    app()
+    rc, out = claude('invoice', '2026-11', '吠瑠うに', '--html', '--no-mark', '--remake', '--remark', 'この請求書の備考', '--out', str(tmp / 'note1'))
+    app()
+    page = next((tmp / 'note1').glob('*.html')).read_text(encoding='utf-8')
+    r = next(r for r in appdata()['invoices'] if r['key'] == '2026-11|吠瑠うに')
+    check('備考: --remark がこの請求書に入り、アプリにも残る', rc == 0 and 'この請求書の備考' in page and '別のクライアントのメモ' not in page
+          and r.get('note') == 'この請求書の備考', out)
+    rc, out = claude('invoice', '2026-11', '吠瑠うに', '--html', '--no-mark', '--remake', '--out', str(tmp / 'note2'))
+    page = next((tmp / 'note2').glob('*.html')).read_text(encoding='utf-8')
+    check('備考: 次に作る時も同じ請求書の備考を使う', rc == 0 and 'この請求書の備考' in page, out)
+    rc, out = claude('invoice', '--project', '1120_テスト', '--html', '--no-mark', '--remake', '--out', str(tmp / 'note3'))
+    page = next((tmp / 'note3').glob('*.html')).read_text(encoding='utf-8')
+    check('備考: 別の請求書には入らない（共通の備考も使わない）', rc == 0 and 'この請求書の備考' not in page and '別のクライアントのメモ' not in page, out)
+    rc, out = claude('invoice', '--project', '1120_テスト', '--html', '--no-mark', '--remake', '--remark', '案件別の備考', '--out', str(tmp / 'note4'))
+    app()
+    check('備考: 案件別の請求書は案件に残る', rc == 0 and next(p for p in appdata()['projects'] if p['title'] == '1120_テスト').get('invoiceNote') == '案件別の備考', out)
+
     # 書き出し・読み込み
     rc, out = claude('export', '--out', str(tmp / 'export.json'))
     ex = json.loads((tmp / 'export.json').read_text(encoding='utf-8'))
@@ -332,30 +351,45 @@ def main():
     check('company が新しい提出を入れる', rc == 0 and '提出した動画 4 本' in out
           and (proj(x['id']).get('deliveries') or [{}])[-1].get('label') == '三稿', out)
 
-    # 作業枠（worklogs、0.21.0）
-    os.environ['FAKE_APP_VERSION'] = '0.20.0'; app(); del os.environ['FAKE_APP_VERSION']
-    rc, out = claude('work', 'start')
-    check('作業枠: アプリが 0.21.0 より前なら止める', rc == 1 and '0.21.0' in out, out)
+    # 作業枠（worklogs、0.21.0・0.23.0 で種類と休憩）
+    os.environ['FAKE_APP_VERSION'] = '0.22.0'; app(); del os.environ['FAKE_APP_VERSION']
+    rc, out = claude('work', 'start', '演出')
+    check('作業枠: アプリが 0.23.0 より前なら止める', rc == 1 and '0.23.0' in out, out)
     app()
-    rc, out = claude('work', 'start', '--plan', '45', '--at', '9:00')
-    check('作業枠: 始める（名前は枠1）', rc == 0 and '枠1 を始める' in out, out)
-    rc, out = claude('work', 'start', '枠2', '--at', '9:50')
-    check('作業枠: 次を始めると前の枠を終える', rc == 0 and '枠1 を終える（50分）' in out and '枠2 を始める' in out, out)
+    rc, out = claude('work', 'start', '演出', '--at', '9:00')
+    check('作業枠: 種類の一部で始める（演出 → 編集・演出）', rc == 0 and '編集・演出 を始める' in out, out)
+    rc, out = claude('work', 'start', '--project', x['id'][:8], '--at', '9:30')
+    check('作業枠: 案件だけ押すと種類を引き継いで次を始める', rc == 0 and '編集・演出 を終える（30分）' in out and '編集・演出｜' in out, out)
+    rc, out = claude('work', 'break', '--at', '9:50')
+    check('作業枠: 休憩', rc == 0 and '（20分）' in out and '休憩 を始める' in out, out)
+    rc, out = claude('work', 'resume', '--at', '10:00')
+    check('作業枠: 休憩から戻ると前の種類と案件', rc == 0 and '休憩 を終える（10分）' in out and '編集・演出｜' in out, out)
+    rc, out = claude('work', 'start', 'ないもの')
+    check('作業枠: 無い種類は止める', rc == 1 and 'ありません' in out, out)
+    rc, out = claude('work', 'start', '返事', '--at', '10:10')
+    check('作業枠: 種類だけ押すと案件を引き継ぐ', rc == 0 and '連絡・返事｜' in out, out)
+    rc, out = claude('work', 'end', '--at', '10:30', '--memo', 'うにさん')
+    check('作業枠: 終える（メモ付き）', rc == 0 and '連絡・返事 を終える' in out and '20分' in out, out)
+    rc, out = claude('work', 'edit', '--kind', '確認')
+    check('作業枠: 後から種類を直す', rc == 0 and '記録を直す（kind・isBreak）' in out, out)
     app()
-    logs = [r for r in appdata().get('worklogs', []) if not r.get('deletedAt')]
-    check('作業枠: アプリに 2 枠入る（枠1 は終わり、枠2 は実行中）',
-          len(logs) == 2 and sum(1 for r in logs if r.get('endAt')) == 1 and {r['label'] for r in logs} == {'枠1', '枠2'},
+    logs = sorted([r for r in appdata().get('worklogs', []) if not r.get('deletedAt')], key=lambda r: r['startAt'])
+    check('作業枠: アプリに 5 件（休憩 1・案件の引き継ぎ・メモ・直した種類）',
+          len(logs) == 5 and [bool(r.get('isBreak')) for r in logs] == [False, False, True, False, False]
+          and [r.get('kind') for r in logs] == ['編集・演出', '編集・演出', None, '編集・演出', '確認・チェック']
+          and [r.get('projectId') for r in logs] == [None, x['id'], None, x['id'], x['id']]
+          and logs[-1].get('memo') == 'うにさん' and all(r.get('endAt') for r in logs),
           json.dumps(logs, ensure_ascii=False))
-    rc, out = claude('work', 'end', '--at', '10:20')
-    app()
     rc, out = claude('work', 'list')
-    check('作業枠: list で合計と予定', rc == 0 and '2枠・合計 80分（予定 45分）' in out and '+5分' in out, out)
+    check('作業枠: list で作業・休憩・種類ごと', rc == 0 and '作業 80分・休憩 10分' in out and '編集・演出 60分' in out and '確認・チェック 20分' in out, out)
+    rc, out = claude('work', 'list', '--week')
+    check('作業枠: list --week', rc == 0 and '作業 80分・休憩 10分' in out, out)
     rc, out = claude('work', 'end')
-    check('作業枠: 実行中が無ければ end は止める', rc == 1 and '実行中の作業枠がありません' in out, out)
+    check('作業枠: 記録中が無ければ end は止める', rc == 1 and '記録中の作業がありません' in out, out)
     rc, out = claude('company')
     md = (Path(env['ANKEN_COMPANY']) / 'secretary' / 'anken-app.md')
-    check('作業枠: company の anken-app.md に今日の枠', rc == 0 and md.exists() and '今日' in md.read_text(encoding='utf-8')
-          and '2枠・合計 80分' in md.read_text(encoding='utf-8'), out)
+    check('作業枠: company の anken-app.md に今日の合計と内訳', rc == 0 and md.exists() and '今日' in md.read_text(encoding='utf-8')
+          and '作業 80分・休憩 10分' in md.read_text(encoding='utf-8') and '種類ごと' in md.read_text(encoding='utf-8'), out)
 
     print(f'\n{sum(OK)}/{len(OK)} OK  （一時フォルダ {tmp}）')
     return 0 if all(OK) else 1

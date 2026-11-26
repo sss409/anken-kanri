@@ -991,36 +991,76 @@ button.tiny:disabled { opacity: .3; cursor: default; }
 /* ---------- 作業枠（0.21.0） ---------- */
 .tabs button.running::after { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-left: 5px; vertical-align: middle; animation: work-blink 1.6s ease-in-out infinite; }
 @keyframes work-blink { 50% { opacity: .25; } }
-.work-running { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; padding: 14px 16px; margin-bottom: 12px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--surface); }
-.work-running-main { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 200px; }
-.work-running-main .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.work-running { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; padding: 14px 16px; margin-bottom: 12px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--surface); }
+.work-running.is-break { border-color: var(--warn); }
+.work-running-main { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 200px; flex-wrap: wrap; }
+.work-running-main .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .work-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: none; animation: work-blink 1.6s ease-in-out infinite; }
+.is-break .work-dot { background: var(--warn); }
 .work-running-time b { font-size: 20px; font-variant-numeric: tabular-nums; }
-.work-running-time.over b { color: var(--danger, #d9534f); }
-.work-end-btn { min-width: 96px; }
-.work-start { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px; margin-bottom: 16px; }
-.work-start #work-label { flex: 1 1 120px; min-width: 0; }
-.work-start #work-project { flex: 2 1 200px; min-width: 0; }
-.work-start #work-plan { width: 96px; }
+.work-idle { padding: 10px 2px 12px; font-size: 13px; }
+/* 種類・案件のボタン */
+.work-pad { padding: 12px 14px; margin-bottom: 16px; }
+.work-pad-label { font-size: 12px; color: var(--muted); font-weight: 600; margin: 2px 0 6px; }
+.work-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.work-btn { padding: 10px 14px; border-radius: 10px; background: var(--surface-2); color: var(--text); font-weight: 600; min-height: 44px; }
+.work-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.work-btn.break.on { background: var(--warn); border-color: var(--warn); }
+.work-btn.project { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; border-left: 4px solid hsl(var(--hue, 220) 60% 55%); max-width: 260px; }
+.work-btn.project small { font-size: 11px; font-weight: normal; color: var(--muted); }
+.work-btn.project.on small { color: rgba(255,255,255,.85); }
+.work-btn.project.none { border-left-color: var(--border); justify-content: center; }
+.work-pad-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.work-pad-actions .primary { min-width: 96px; }
+/* 上の帯（どのタブでも） */
+.work-strip { flex: 1 0 100%; display: flex; align-items: center; gap: 8px; padding: 6px 10px; margin: -2px 0 0; border-radius: 10px; background: var(--accent-soft); }
+.work-strip[hidden] { display: none; }
+.work-strip.is-break { background: var(--warn-soft); }
+.work-strip-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; background: none; border: none; padding: 2px 0; color: var(--text); text-align: left; }
+.work-strip-what { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.work-strip-time { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); }
+.work-strip-time b { color: var(--text); }
+.work-strip button.small { flex: none; }
+/* 日・週・月 */
 .work-day-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-.work-day-bar #work-summary { margin-left: auto; }
-.work-row { display: grid; grid-template-columns: minmax(70px, 1fr) auto 90px minmax(120px, 2fr) 90px auto; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 6px; }
+.work-unit { grid-template-columns: repeat(3, 1fr); min-width: 120px; }
+.work-unit button.active { background: var(--accent-soft); color: var(--accent); }
+.work-totals { display: flex; gap: 16px; align-items: baseline; margin: 4px 2px 10px; }
+.work-totals b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.work-sum-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.work-sum-block { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+.work-sum-block h4 { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+.work-sum-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(40px, 1fr) auto auto; gap: 8px; align-items: center; padding: 3px 0; font-size: 13px; }
+.work-sum-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.work-sum-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.work-sum-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.work-sum-min { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.work-sum-all { font-size: 11px; white-space: nowrap; }
+.work-day-row { display: grid; white-space: nowrap; grid-template-columns: 100px minmax(40px, 1fr) auto auto; gap: 10px; align-items: center; width: 100%; padding: 10px 12px; margin-bottom: 6px; text-align: left; color: var(--text); }
+/* 一覧の 1 行 */
+.work-row { display: grid; grid-template-columns: minmax(100px, 1fr) auto 70px minmax(120px, 1.6fr) minmax(100px, 1.6fr) auto; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 6px; }
 .work-row.running { border-color: var(--accent); }
+.work-row.is-break { background: var(--warn-soft); }
+.work-row.needs-fill .work-in-kind { border-color: var(--warn); }
 .work-row input, .work-row select { min-width: 0; }
 .work-times { display: flex; align-items: center; gap: 4px; }
 .work-min { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.work-min small.over { color: var(--danger, #d9534f); }
-.work-min small.under { color: var(--muted); }
 .work-del { padding: 4px 10px; }
 @media (max-width: 640px) {
   .tabs button { font-size: 11.5px; }
   .tabs button.running::after { width: 5px; height: 5px; margin-left: 2px; }
+  .app-header { flex-wrap: wrap; row-gap: 6px; }
+  .work-strip { padding: 4px 8px; font-size: 13px; }
+  .work-strip-time { font-size: 12px; }
+  .work-btn { padding: 8px 12px; }
+  .work-btn.project { max-width: calc(50% - 4px); }
   .work-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .work-row .work-in-label { grid-column: 1; }
+  .work-row .work-in-kind { grid-column: 1; }
   .work-row .work-del { grid-column: 2; grid-row: 1; }
   .work-row .work-times { grid-column: 1; }
   .work-row .work-min { grid-column: 2; }
-  .work-row .work-in-project { grid-column: 1; }
-  .work-row .work-in-plan { grid-column: 2; width: 84px; }
+  .work-row .work-in-project, .work-row .work-in-memo { grid-column: 1 / -1; }
   .work-times input { flex: 1 1 0; min-width: 0; }
+  .work-day-row { grid-template-columns: auto minmax(30px, 1fr) auto; white-space: nowrap; }
+  .work-day-row .muted { display: none; }
 }

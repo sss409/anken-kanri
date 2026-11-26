@@ -50,7 +50,7 @@ Python 3.10 以上、標準ライブラリだけ。`python "E:\個人フォル�
 | 案件タブ | 「初稿」「修正」ボタン（押した日を記録・もう一度で戻す） | `set <案件> --stage 初稿提出\|修正中\|作業中` |
 | 案件タブ | 「完了」ボタン | `done <案件>` |
 | 案件タブ | 「請求書」（案件別の請求書を作る・見る） | `invoice --project <案件>` |
-| 作業枠タブ（0.21.0〜） | 始める・終わる・その日の一覧（時刻・名前・案件・予定の分を直す／消す） | `work start [名前] [--plan 分] [--project 案件] [--at HH:MM]`・`work end [--at HH:MM]`・`work list [--date]`。`company` の anken-app.md に昨日・今日の枠が出る |
+| 作業枠タブ（0.21.0〜、0.23.0 で種類と休憩） | 種類・案件のボタンで切り替え・休憩・終わる・一覧で後から種類／案件／メモ／時刻を直す・日／週／月の合計。どのタブでも上の帯に記録中の作業 | `work start [種類] [--project 案件] [--memo]`（種類は「演出」のように一部でよい。種類だけなら案件を、案件だけなら種類を引き継ぐ）・`work break`・`work resume`（休憩の前の種類と案件で戻る）・`work end [--memo]`・`work edit [--id] --kind/--project/--memo`（後から中身）・`work list [--week|--month] [--date]`。どれも `--at HH:MM` で時刻を指定。種類の一覧は設定の workKinds。`company` の anken-app.md に昨日・今日の合計と内訳が出る |
 | 入力画面 | 追加・続けて追加 | `add --client --title --kind short\|long --due [--price] [--count] [--per-minute --minutes] [--start] [--billing] [--stage] [--progress] [--memo] [--request] [--editor] [--fee] [--outsource 業務:外注先:金額] [--extra 名前:単価[:回数]]`。単価を省くと単価タブ → 前回の単価 |
 | 入力画面 | 更新（クライアント・案件名・種別・単価・本数・1本／1分あたり・尺・着手日・納期・請求月・メモ・進行メモ・依頼メッセージ） | `set <案件> [--client] [--title] [--kind] [--price] [--count] [--per-minute --minutes \| --per-video] [--start] [--due] [--billing] [--memo] [--progress] [--request]`。依頼メッセージ（クライアントから来た依頼の文、0.20.0〜）は `show` で全文を読める |
 | 入力画面 | 追加料金（行を足す・変える・消す） | `set <案件> --extra 名前:単価[:回数]`（同じ名前は差し替え、`名前:なし` で消す）・`--extras-clear` |
@@ -62,7 +62,7 @@ Python 3.10 以上、標準ライブラリだけ。`python "E:\個人フォル�
 | 請求タブ | 月の請求表・内訳・入金待ち／未請求・発行した請求書 | `billing [月]` |
 | 請求タブ | 「表をコピー」 | `billing [月] --tsv` |
 | 請求タブ | 「請求書 未発行／発行済」「振込 未確認／入金済」ボタン | `bill <月> <クライアント> [--invoiced 日付\|今日\|なし] [--paid 日付\|今日\|なし]`（引数なしで今の状態） |
-| 請求タブ | 「請求書を作成」→ PDF・CSV で保存（発行済み・控えが残る） | `invoice <月> <クライアント> [--pdf] [--csv] [--html] [--issue 発効日] [--due お支払期限] [--out フォルダ]`。PDF は Edge（なければ Chrome）で作る。保存先の既定はダウンロード |
+| 請求タブ | 「請求書を作成」→ PDF・CSV で保存（発行済み・控えが残る） | `invoice <月> <クライアント> [--pdf] [--csv] [--html] [--issue 発効日] [--due お支払期限] [--out フォルダ] [--remark 備考]`。備考は請求書ごと（0.22.0〜。クライアント別は請求のレコードの note、案件別は案件の invoiceNote。`--remark` で変えると下書きでも残る）。PDF は Edge（なければ Chrome）で作る。保存先の既定はダウンロード |
 | 請求タブ | 「請求書を見る」（控え）・「作り直す」 | `invoice ...`（発行済みなら控えをそのまま出す。受け箱には書かない）・`invoice ... --remake`。下書きだけは `--no-mark` |
 | 請求タブ › ファイル名の画面 | ファイル名の決まり・元に戻す・自分の名前・活動名 | `setting --rule-month '{請求月}月分請求書_{自分の名前}_{宛名}' --rule-project ... \| --rule-reset`・`setting --my-name --activity` |
 | 請求書の画面 | 宛名・様／御中（クライアントごと）・自分の名前・住所・電話・振込先・備考 | `setting --addressee クライアント=宛名 --honorific クライアント=御中 --my-name --zip --pref --city --building --tel --bank --branch --type 普通\|当座\|貯蓄 --number --holder --note '1行目\n2行目'`（引数なしで今の値） |

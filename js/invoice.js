@@ -324,6 +324,28 @@ function markIssued(d) {
   }
 }
 
+// ---------- 備考（請求書ごと、0.22.0） ----------
+// クライアント別はその月のその請求のレコード（invoices）の note、案件別は案件の invoiceNote に入れる（どちらも同期される）
+
+function invoiceNoteOf(t) {
+  if (t.mode === 'project') return byId(t.projectId)?.invoiceNote ?? '';
+  return invoiceOf(t.month, t.client).note ?? '';
+}
+
+let noteTimer = null;
+function saveInvoiceNote(value) {
+  const t = { mode: inv.mode, month: inv.month, client: inv.client, projectId: inv.projectId };
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => {
+    if (t.mode === 'project') {
+      const p = byId(t.projectId);
+      if (p && (p.invoiceNote ?? '') !== value) upsert({ ...p, invoiceNote: value });
+    } else if ((invoiceOf(t.month, t.client).note ?? '') !== value) {
+      saveMonthRecord(t.month, t.client, { note: value });
+    }
+  }, 500);
+}
+
 // ---------- 画面 ----------
 
 // クライアント別：発行済みなら控えを開く。まだなら作る（発効日は請求月の末日、お支払期限は翌月の末日）
@@ -357,7 +379,8 @@ function showEditor(target, issue, due, title) {
   $('iv-issue').value = issue;
   $('iv-due').value = due;
   writeGroup('iv-bank', 'bank', s.bankInfo ?? {});
-  $('iv-note').value = s.note ?? '';
+  // 備考は請求書ごと（0.22.0）。前の版の「全部の請求書で共通の備考」は使わない
+  $('iv-note').value = invoiceNoteOf(inv) ?? '';
   openView(title);
 }
 
@@ -610,7 +633,7 @@ function bindInvoice() {
     else if (e.target.dataset.addr) updateSettings({ myAddressInfo: readGroup('iv-addr', 'addr') });
     else if (id === 'iv-tel') updateSettings({ myTel: e.target.value.trim() });
     else if (e.target.dataset.bank) updateSettings({ bankInfo: readGroup('iv-bank', 'bank') });
-    else if (id === 'iv-note') updateSettings({ note: e.target.value });
+    else if (id === 'iv-note') saveInvoiceNote(e.target.value);
     renderInvoicePaper();
   });
   document.addEventListener('keydown', (e) => {

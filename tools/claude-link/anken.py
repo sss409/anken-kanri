@@ -1496,6 +1496,7 @@ def cmd_invoice(a) -> None:
         target = {'mode': 'project', 'month': p.get('billingMonth'), 'client': p['client'], 'projectId': p['id']}
         ps = [p]
         snap = p.get('invoiceSnapshot') if p.get('invoicedAt') else None
+        cur_note = p.get('invoiceNote') or ''
         issue, due = today(), month_end(shift_month(today()[:7], 1))
         title = f'案件「{project_label(p)}」　{p["client"]}'
     else:
@@ -1510,8 +1511,19 @@ def cmd_invoice(a) -> None:
         ps = sorted([x for x in v['projects'].values() if x.get('billingMonth') == ym and x['client'] == client], key=lambda x: x.get('dueDate') or '')
         rec = v['invoices'].get(f'{ym}|{client}') or {}
         snap = rec.get('snapshot') if rec.get('invoicedAt') else None
+        cur_note = rec.get('note') or ''
         issue, due = month_end(ym), month_end(shift_month(ym, 1))
         title = f'{month_label(ym)}分　{client}'
+    # 備考は請求書ごと（アプリ 0.22.0）。--remark で変えると、この請求書に残す（下書きでも）
+    note_patch = None
+    if a.remark is not None:
+        if app_version(m) < NOTE_APP:
+            raise Stop(f'請求書ごとの備考はアプリ v{".".join(map(str, NOTE_APP))} 以降が取り込みます。写しは v{m.get("appVersion") or "?"} が書いたもの')
+        cur_note = a.remark.replace('\\n', '\n').strip()
+        if target['mode'] == 'project':
+            note_patch = make_update(m, ib, ps[0]['id'], {'invoiceNote': cur_note}, a.note or '')
+        else:
+            note_patch = invoice_patch(v, target['month'], target['client'], {'note': cur_note}, a.note or '')
     out_dir = Path(a.out) if a.out else Path.home() / 'Downloads'
     out_dir.mkdir(parents=True, exist_ok=True)
     if snap and not a.remake:   # 発行済み：控えをそのまま出す（アプリの「請求書を見る」）
@@ -1528,7 +1540,7 @@ def cmd_invoice(a) -> None:
         d = {'to': to, 'honorific': (st.get('honorifics') or {}).get(target['client'], '様'), 'myName': st.get('myName') or '',
              'address': address_lines(my_address(st)), 'tel': st.get('myTel') or '',
              'issue': parse_day(a.issue, '--issue') if a.issue else issue, 'due': parse_day(a.due, '--due') if a.due else due,
-             'bank': bank_lines(st.get('bankInfo') or {}), 'note': (st.get('note') or '').strip(),
+             'bank': bank_lines(st.get('bankInfo') or {}), 'note': cur_note.strip(),
              'items': items, 'total': sum(x['amount'] for x in items)}
         ym = target['month']
         values = {'クライアント': target['client'], '宛名': f'{d["to"]}{d["honorific"]}', '自分の名前': d['myName'] or '自分の名前',
@@ -1556,6 +1568,9 @@ def cmd_invoice(a) -> None:
         made.append(dest)
     print('\n'.join(f'作りました: {x}' for x in made))
     print(f'{title}  {yen(d["total"])}（{len(d["items"])}行） 宛名 {d["to"]} {d.get("honorific") or "様"}  発効日 {d["issue"]}  お支払期限 {d["due"]}')
+    if note_patch:
+        save_and_say([note_patch], m, ib, f'この請求書の備考を「{cur_note.replace(chr(10), " / ") or "（空）"}」にする')
+        ib = load_inbox()
     if not mark:
         return
     # 保存したら控えを残し「請求書 発行済」にする（アプリの markIssued と同じ）
@@ -1675,10 +1690,29 @@ def job_key(job: Path) -> str:
         return job.name
 
 
-# ---------- 作業枠（worklogs、アプリ 0.21.0 から） ----------
-# オーナーが「枠1 始め」「枠1 終わり」と言ったら秘書が書く。記録はアプリの作業枠タブに出る
+# ---------- 作業枠（worklogs、アプリ 0.21.0 から・0.23.0 で種類と休憩） ----------
+# オーナーが「演出 始め」「休憩」「戻る」「終わり」と言ったら秘書が書く。記録はアプリの作業枠タブと上の帯に出る
+# 記録 1 件 = { id, date, kind, projectId, isBreak, memo, startAt, endAt, deletedAt }（0.21.0 の label・planMin は読むだけ）
 
-WORK_APP = (0, 21, 0)
+WORK_APP = (0, 23, 0)
+NOTE_APP = (0, 22, 0)  # 請求書ごとの備考
+DEFAULT_WORK_KINDS = ['編集・演出', '確認・チェック', '連絡・返事', '事務・請求']
+
+
+def work_kinds(m: dict, ib: dict) -> list[str]:
+    k = view(m, ib)['settings'].get('workKinds')
+    return k if isinstance(k, list) and k else DEFAULT_WORK_KINDS
+
+
+def find_kind(kinds: list[str], q: str) -> str:
+    """「演出」→「編集・演出」のように、設定の種類に当てる。当たらなければ止める（新しい種類はアプリの設定で足す）"""
+    if q in kinds:
+        return q
+    hits = [k for k in kinds if q in k]
+    if len(hits) == 1:
+        return hits[0]
+    raise Stop(f'作業の種類「{q}」が{"いくつも当たります" if hits else "ありません"}。種類: {"・".join(kinds)}'
+               '（足す時は アプリの設定 → 作業の種類、または setting で workKinds）')
 
 
 def worklogs_view(m: dict, ib: dict) -> dict:
@@ -1688,7 +1722,7 @@ def worklogs_view(m: dict, ib: dict) -> dict:
         if patch.get('op') != 'worklog':
             continue
         lid = patch.get('logId')
-        r = out.setdefault(lid, {'id': lid, 'label': '', 'projectId': None, 'planMin': None, 'endAt': None, 'deletedAt': None})
+        r = out.setdefault(lid, {'id': lid, 'kind': None, 'isBreak': False, 'memo': '', 'projectId': None, 'endAt': None, 'deletedAt': None})
         r.update(patch.get('after') or {})
         r['_pending'] = True
     return out
@@ -1719,27 +1753,75 @@ def work_at(v: str | None, date: str, after: str | None = None) -> str:
     return d.astimezone(dt.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
 
+def work_alive(w: dict) -> list[dict]:
+    return [r for r in w.values() if not r.get('deletedAt') and r.get('startAt')]
+
+
 def work_of_day(w: dict, date: str) -> list[dict]:
-    return sorted([r for r in w.values() if r.get('date') == date and not r.get('deletedAt') and r.get('startAt')],
-                  key=lambda r: r['startAt'])
+    return sorted([r for r in work_alive(w) if r.get('date') == date], key=lambda r: r['startAt'])
 
 
 def work_running(w: dict) -> dict | None:
-    rs = [r for r in w.values() if not r.get('deletedAt') and not r.get('endAt') and r.get('startAt')]
+    rs = [r for r in work_alive(w) if not r.get('endAt')]
     return max(rs, key=lambda r: r['startAt']) if rs else None
 
 
+def work_memo(r: dict) -> str:
+    if r.get('memo') is not None:
+        return r.get('memo') or ''
+    lb = r.get('label') or ''
+    return '' if re.fullmatch(r'枠\s*\d+', lb) else lb
+
+
+def work_kind_text(r: dict) -> str:
+    return '休憩' if r.get('isBreak') else (r.get('kind') or '（種類なし）')
+
+
 def work_line(r: dict, ps: dict) -> str:
-    m = work_minutes(r)
     p = ps.get(r.get('projectId') or '')
-    plan = f'（予定 {r["planMin"]}分・{"+" if m > r["planMin"] else ""}{m - r["planMin"]}分）' if r.get('planMin') else ''
-    return (f'- {r.get("label") or "枠"} {work_hhmm(r["startAt"])}〜{work_hhmm(r.get("endAt")) or "（実行中）"} {m}分{plan}'
-            f'{" ・ " + p["client"] + "｜" + (p.get("title") or "") if p else ""}{" ※取り込み待ち" if r.get("_pending") else ""}')
+    memo = work_memo(r)
+    return (f'- {work_kind_text(r)} {work_hhmm(r["startAt"])}〜{work_hhmm(r.get("endAt")) or "（記録中）"} {work_minutes(r)}分'
+            f'{" ・ " + p["client"] + "｜" + (p.get("title") or "") if p else ""}{" ・ " + memo if memo else ""}'
+            f'{" ※取り込み待ち" if r.get("_pending") else ""}')
 
 
-def next_work_label(w: dict, date: str) -> str:
-    nums = [int(mt[1]) for r in work_of_day(w, date) if (mt := re.match(r'枠\s*(\d+)', r.get('label') or ''))]
-    return f'枠{max(nums) + 1 if nums else 1}'
+def work_before_break(w: dict, date: str) -> dict | None:
+    rs = [r for r in work_of_day(w, date) if not r.get('isBreak')]
+    return rs[-1] if rs else None
+
+
+def work_totals(rs: list[dict], ps: dict) -> list[str]:
+    """作業と休憩の合計、種類ごと・案件ごとの内訳"""
+    works = [r for r in rs if not r.get('isBreak')]
+    total = sum(work_minutes(r) for r in works)
+    rest = sum(work_minutes(r) for r in rs if r.get('isBreak'))
+    out = [f'作業 {total}分・休憩 {rest}分']
+
+    def by(key, name):
+        d: dict = {}
+        for r in works:
+            d[key(r)] = d.get(key(r), 0) + work_minutes(r)
+        return '・'.join(f'{name(k)} {v}分' for k, v in sorted(d.items(), key=lambda x: -x[1]))
+
+    def pname(i):
+        p = ps.get(i)
+        return f'{p["client"]}｜{p.get("title") or ""}' if p else '（案件なし）'
+    if works:
+        out.append('種類ごと: ' + by(lambda r: r.get('kind') or '', lambda k: k or '（種類なし）'))
+        out.append('案件ごと: ' + by(lambda r: r.get('projectId') or '', pname))
+    return out
+
+
+def work_period(date: str, unit: str) -> tuple[str, str]:
+    d = dt.date.fromisoformat(date)
+    if unit == 'week':
+        s = d - dt.timedelta(days=d.weekday())
+        return s.isoformat(), (s + dt.timedelta(days=6)).isoformat()
+    if unit == 'month':
+        s = d.replace(day=1)
+        n = (s.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+        return s.isoformat(), (n - dt.timedelta(days=1)).isoformat()
+    return date, date
 
 
 def cmd_work(a) -> None:
@@ -1748,37 +1830,91 @@ def cmd_work(a) -> None:
     date = a.date or today()
     ps = {p['id']: p for p in projects_view(m, ib)}
     if a.action == 'list':
-        day = work_of_day(w, date)
-        total = sum(work_minutes(r) for r in day)
-        plan = sum(r.get('planMin') or 0 for r in day)
-        print(f'{date} の作業枠: {len(day)}枠・合計 {total}分{f"（予定 {plan}分）" if plan else ""}')
-        for r in day:
-            print(work_line(r, ps))
+        unit = 'week' if a.week else 'month' if a.month else 'day'
+        f, t = work_period(date, unit)
+        rs = sorted([r for r in work_alive(w) if f <= (r.get('date') or '') <= t], key=lambda r: r['startAt'])
+        print(f'{date if unit == "day" else f + "〜" + t} の作業枠: {len(rs)}件')
+        for x in (work_totals(rs, ps) if rs else []):
+            print(x)
+        if unit == 'day':
+            for r in rs:
+                print(work_line(r, ps))
+        else:
+            for d in sorted({r['date'] for r in rs}):
+                day = [r for r in rs if r['date'] == d]
+                print(f'- {d}: 作業 {sum(work_minutes(r) for r in day if not r.get("isBreak"))}分'
+                      f'・休憩 {sum(work_minutes(r) for r in day if r.get("isBreak"))}分')
         return
     if app_version(m) < WORK_APP:
-        raise Stop(f'作業枠はアプリ v{".".join(map(str, WORK_APP))} 以降が取り込みます。写しは v{m.get("appVersion") or "?"} が書いたもの。'
+        raise Stop(f'作業枠（種類・休憩）はアプリ v{".".join(map(str, WORK_APP))} 以降が取り込みます。写しは v{m.get("appVersion") or "?"} が書いたもの。'
                    '新しい版を公開して、アプリを開いて同期してから使ってください')
     cur = work_running(w)
     patches, say = [], []
+    pid = None
+    if a.project:
+        pid = None if a.project in ('なし', '-') else find_project(list(ps.values()), a.project)['id']
+    kq = a.kind_opt or a.kind
     if a.action == 'end':
         if not cur:
-            raise Stop('実行中の作業枠がありません（list で今日の記録を見られます）')
+            raise Stop('記録中の作業がありません（list で今日の記録を見られます）')
         end = work_at(a.at, cur['date'], cur['startAt'])
-        patches.append(new_patch('worklog', a.note or '', logId=cur['id'], before={'endAt': None}, after={'endAt': end}))
-        done = {**cur, 'endAt': end}
-        plan = f'・予定 {cur["planMin"]}分' if cur.get('planMin') else ''
-        say.append(f'{cur.get("label")} を終える（{work_hhmm(cur["startAt"])}〜{work_hhmm(end)} {work_minutes(done)}分{plan}）')
-    else:  # start
+        after, before = {'endAt': end}, {'endAt': None}
+        if a.memo is not None:
+            after['memo'], before['memo'] = a.memo, cur.get('memo')
+        patches.append(new_patch('worklog', a.note or '', logId=cur['id'], before=before, after=after))
+        say.append(f'{work_kind_text(cur)} を終える（{work_hhmm(cur["startAt"])}〜{work_hhmm(end)} {work_minutes({**cur, "endAt": end})}分）')
+    elif a.action == 'edit':
+        # いちばん新しい記録（または --id）の中身を後から入れる
+        if a.id:
+            r = next((x for x in work_alive(w) if x['id'].startswith(a.id)), None)
+        else:
+            rs = work_of_day(w, date)
+            r = rs[-1] if rs else None
+        if not r:
+            raise Stop('直す記録がありません（list で見て --id で指定できます）')
+        after, before = {}, {}
+        if kq:
+            after['kind'], before['kind'] = find_kind(work_kinds(m, ib), kq), r.get('kind')
+            after['isBreak'], before['isBreak'] = False, bool(r.get('isBreak'))
+        if a.project:
+            after['projectId'], before['projectId'] = pid, r.get('projectId')
+        if a.memo is not None:
+            after['memo'], before['memo'] = a.memo, r.get('memo')
+        if not after:
+            raise Stop('--kind・--project・--memo のどれかを入れてください')
+        patches.append(new_patch('worklog', a.note or '', logId=r['id'], before=before, after=after))
+        say.append(f'{work_kind_text(r)} {work_hhmm(r["startAt"])} の記録を直す（{"・".join(after)}）')
+    else:  # start / break / resume
         start = work_at(a.at, date)
+        if a.action == 'break':
+            if cur and cur.get('isBreak'):
+                raise Stop('もう休憩中です')
+            fields = {'isBreak': True, 'kind': None, 'projectId': None}
+        elif a.action == 'resume':
+            prev = work_before_break(w, date)
+            fields = {'isBreak': False, 'kind': (prev or {}).get('kind'), 'projectId': (prev or {}).get('projectId')}
+        else:
+            # アプリのボタンと同じ：種類だけなら案件を引き継ぎ、案件だけなら種類を引き継ぐ（休憩中なら休憩の前の作業から）
+            base = None
+            if cur:
+                base = work_before_break(w, date) if cur.get('isBreak') else cur
+            kind = find_kind(work_kinds(m, ib), kq) if kq else None
+            if kq and a.project:
+                fields = {'kind': kind, 'projectId': pid}
+            elif kq:
+                fields = {'kind': kind, 'projectId': (base or {}).get('projectId')}
+            elif a.project:
+                fields = {'kind': (base or {}).get('kind'), 'projectId': pid}
+            else:
+                fields = {'kind': None, 'projectId': None}
+            fields['isBreak'] = False
         if cur:
-            patches.append(new_patch('worklog', '次の枠を始めたので終える', logId=cur['id'], before={'endAt': None}, after={'endAt': start}))
-            say.append(f'{cur.get("label")} を終える（{work_minutes({**cur, "endAt": start})}分）')
-        label = a.label or next_work_label(w, date)
-        after = {'date': date, 'label': label, 'startAt': start, 'endAt': None, 'deletedAt': None,
-                 'planMin': a.plan, 'projectId': find_project(list(ps.values()), a.project)['id'] if a.project else None}
+            patches.append(new_patch('worklog', '次を始めたので終える', logId=cur['id'], before={'endAt': None}, after={'endAt': start}))
+            say.append(f'{work_kind_text(cur)} を終える（{work_minutes({**cur, "endAt": start})}分）')
+        after = {'date': date, **fields, 'memo': a.memo or '', 'startAt': start, 'endAt': None, 'deletedAt': None}
         patches.append(new_patch('worklog', a.note or '', logId=f'w-{uuid.uuid4().hex[:12]}', after=after))
-        plan = f'・予定 {a.plan}分' if a.plan else ''
-        say.append(f'{label} を始める（{work_hhmm(start)}{plan}）')
+        p = ps.get(fields.get('projectId') or '')
+        say.append(f'{work_kind_text(after)}{"｜" + p["client"] + " " + (p.get("title") or "") if p else ""} を始める（{work_hhmm(start)}）')
     save_and_say(patches, m, ib, ' → '.join(say))
 
 
@@ -1897,7 +2033,9 @@ def render_summary(m: dict, ib: dict) -> str:
         for d, name in ((yday, '昨日'), (t, '今日')):
             day = work_of_day(w, d)
             if day:
-                lines.append(f'- **{name} {d}**: {len(day)}枠・合計 {sum(work_minutes(r) for r in day)}分')
+                tot = work_totals(day, psd)
+                lines.append(f'- **{name} {d}**: {tot[0]}')
+                lines += ['  - ' + x for x in tot[1:]]
                 lines += ['  ' + work_line(r, psd) for r in day]
         lines.append('')
     lines += ['## 進行中（納期順）', '']
@@ -2006,6 +2144,7 @@ def main() -> int:
     s.add_argument('--issue'); s.add_argument('--due'); s.add_argument('--out')
     s.add_argument('--pdf', action='store_true'); s.add_argument('--csv', action='store_true'); s.add_argument('--html', action='store_true')
     s.add_argument('--remake', action='store_true', help='控えがあっても今の内容で作り直す'); s.add_argument('--no-mark', action='store_true', help='発行済みにしない（下書き）')
+    s.add_argument('--remark', help='この請求書の備考（請求書ごと。空の "" で消す。改行は \\n）')
     s.add_argument('--note')
     s = sub.add_parser('export', help='書き出し（アプリの「書き出し」と同じ形の JSON）'); s.add_argument('--out')
     s = sub.add_parser('import', help='読み込み（置き換え。消える案件はゴミ箱へ）'); s.add_argument('file'); s.add_argument('--yes', action='store_true'); s.add_argument('--note')
@@ -2013,9 +2152,12 @@ def main() -> int:
     s = sub.add_parser('deliveries', help='提出フォルダの動画を案件に入れる（--all で古い完了済みも）')
     s.add_argument('--dry-run', action='store_true'); s.add_argument('--all', action='store_true')
     s = sub.add_parser('link', help='jobs のファイルに案件を結び付ける'); s.add_argument('job'); s.add_argument('query')
-    s = sub.add_parser('work', help='作業枠（start [名前] で始める・end で終える・list でその日の記録）')
-    s.add_argument('action', choices=['start', 'end', 'list']); s.add_argument('label', nargs='?')
-    s.add_argument('--plan', type=int, help='予定の分'); s.add_argument('--project', help='結び付ける案件')
+    s = sub.add_parser('work', help='作業枠（start [種類] で始める・break で休憩・resume で戻る・end で終える・edit で中身を後から・list で合計）')
+    s.add_argument('action', choices=['start', 'break', 'resume', 'end', 'edit', 'list'])
+    s.add_argument('kind', nargs='?', help='作業の種類（「演出」のように一部でもよい）')
+    s.add_argument('--kind', dest='kind_opt', help='edit で入れる種類'); s.add_argument('--project', help='結び付ける案件（「なし」で外す）')
+    s.add_argument('--memo', help='一言メモ'); s.add_argument('--id', help='edit で直す記録の id の先頭（無ければその日のいちばん新しい記録）')
+    s.add_argument('--week', action='store_true', help='list を週で'); s.add_argument('--month', action='store_true', help='list を月で')
     s.add_argument('--at', help='時刻 HH:MM（無ければ今）'); s.add_argument('--date', help='YYYY-MM-DD（無ければ今日）'); s.add_argument('--note')
     a = ap.parse_args()
     for k in ('price', 'minutes'):

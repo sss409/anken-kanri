@@ -14,10 +14,10 @@ const LINK_INBOX = 'claude-inbox.json';
 // Claude が変えてよい項目（案件）
 const LINK_FIELDS = ['client', 'title', 'kind', 'unitPrice', 'count', 'priceUnit', 'minutes', 'extras', 'startDate', 'dueDate',
   'billingMonth', 'memo', 'progress', 'request', 'stage', 'draftAt', 'revisionAt', 'status', 'completedAt', 'editor', 'feeUnit', 'outsources',
-  'invoicedAt', 'invoiceSnapshot', 'deliveries'];
+  'invoicedAt', 'invoiceSnapshot', 'invoiceNote', 'deliveries'];
 const LINK_REQUIRED = ['client', 'kind', 'unitPrice', 'count', 'startDate', 'dueDate', 'billingMonth'];
 // 請求書・振込の状態（請求月 × クライアント）で Claude が変えてよい項目
-const LINK_INVOICE_FIELDS = ['invoicedAt', 'paidAt', 'snapshot'];
+const LINK_INVOICE_FIELDS = ['invoicedAt', 'paidAt', 'snapshot', 'note'];
 // 設定で Claude が変えられない所（アイコンの画像はアプリが取る）
 const LINK_SETTINGS_LOCKED = ['clientIcons', 'updatedAt'];
 
@@ -94,7 +94,8 @@ function linkSet(obj, path, value, remove = false) {
 }
 
 // 作業枠で Claude が変えられる項目（0.21.0）
-const LINK_WORKLOG_FIELDS = ['date', 'label', 'projectId', 'planMin', 'startAt', 'endAt', 'deletedAt'];
+// kind・isBreak・memo は 0.23.0 から（label・planMin は 0.21.0 の記録のために残す）
+const LINK_WORKLOG_FIELDS = ['date', 'kind', 'isBreak', 'memo', 'label', 'projectId', 'planMin', 'startAt', 'endAt', 'deletedAt'];
 const pickWorkFields = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => LINK_WORKLOG_FIELDS.includes(k)));
 
 // data: { projects, invoices, deleted, worklogs, settings }、patches: 受け箱の中身、doneIds: もう処理したパッチの id
@@ -262,16 +263,17 @@ function applyClaudePatches(data, patches, doneIds, now = new Date().toISOString
         }
         changed = true;
       } else if (patch.op === 'worklog') {
-        // 作業枠の記録（0.21.0）：秘書が「枠1 始め」「枠1 終わり」を聞いて書く。項目ごとに 3 方向で当てる
+        // 作業枠の記録（0.21.0・0.23.0 で種類と休憩）：秘書が「演出 始め」「休憩」「終わり」を聞いて書く。項目ごとに 3 方向で当てる
         const after = patch.after ?? {};
         const before = patch.before ?? {};
         const id = patch.logId ?? '';
         if (!id) throw new Error('logId がありません');
         const cur = worklogs.get(id);
-        res.title = `作業枠 ${after.label ?? cur?.label ?? ''}`.trim();
+        const w = { ...(cur ?? {}), ...after };
+        res.title = `作業枠 ${w.isBreak ? '休憩' : w.kind ?? w.label ?? ''}`.trim();
         if (!cur) {
           if (!after.startAt || !after.date) throw new Error('新しい作業枠には date と startAt が要ります');
-          worklogs.set(id, { id, label: '', projectId: null, planMin: null, endAt: null, deletedAt: null, ...pickWorkFields(after), updatedAt: now, changedBy: by });
+          worklogs.set(id, { id, kind: null, isBreak: false, memo: '', projectId: null, endAt: null, deletedAt: null, ...pickWorkFields(after), updatedAt: now, changedBy: by });
           res.fields = Object.keys(pickWorkFields(after));
           changed = true;
         } else {
