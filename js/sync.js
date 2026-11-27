@@ -123,6 +123,9 @@ async function initSync(hooks) {
     if (syncPref('syncEnabled')) setStatus('error', e.message);
   }
   if (syncPref('syncEnabled') && savedToken()) syncNow();
+  // Google の合鍵は 1 時間で切れる。切れた後、画面のどこかを最初に押した時にログインし直して同期する
+  // （同期ボタンを探して押さなくてよいように。ポップアップは押した中でしか出せないので click で拾う）
+  document.addEventListener('click', autoRelogin, true);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible' || !syncPref('syncEnabled')) return;
     if (savedToken()) syncNow(); else setStatus('needs-tap');
@@ -145,6 +148,15 @@ function onSyncButton() {
   if (!linkOn()) { Sync.tokenClient.requestAccessToken({ prompt: syncPref('syncEnabled') ? '' : 'consent' }); return; } // いままでどおり
   const more = savedToken() && !tokenHasFileScope();
   Sync.tokenClient.requestAccessToken({ scope: wantedScopes(), include_granted_scopes: true, prompt: syncPref('syncEnabled') && !more ? '' : 'consent' });
+}
+
+// 合鍵が切れていたら、押した中でログインし直す（同期ボタン自体は onSyncButton が受けるので除く。1 分に 1 回まで）
+function autoRelogin(e) {
+  if (!Sync.available || !Sync.tokenClient || !syncPref('syncEnabled') || savedToken()) return;
+  if (e.target?.closest?.('#btn-sync')) return;
+  if (Date.now() - (Sync.lastAutoLogin ?? 0) < 60_000) return;
+  Sync.lastAutoLogin = Date.now();
+  onSyncButton();
 }
 
 function stopSync() {
