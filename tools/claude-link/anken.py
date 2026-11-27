@@ -1674,6 +1674,15 @@ def app_values(p: dict) -> dict:
     return {'due': p.get('dueDate') or '', 'stage': stage_label(p), 'progress': p.get('progress') or ''}
 
 
+APP_FIELDS_OF = {'due': ('dueDate',), 'progress': ('progress',), 'stage': ('stage', 'status', 'completedAt')}
+
+
+def app_field_time(p: dict, field: str) -> str:
+    """アプリ 0.25.0 からの項目ごとの変えた時刻（fieldAt）。無ければ ''（案件全体の updatedAt を使う）"""
+    fa = p.get('fieldAt') or {}
+    return max((fa.get(k) or '' for k in APP_FIELDS_OF.get(field, ())), default='')
+
+
 def to_app_fields(field: str, value: str, p: dict) -> dict:
     if field == 'due':
         return {'dueDate': value}
@@ -1989,6 +1998,16 @@ def cmd_company(a) -> None:
         job_time = dt.datetime.fromtimestamp(job.stat().st_mtime, dt.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
         app_time = p.get('updatedAt') or ''
         to_job, to_app = {}, {}
+        # 項目ごとに「その値を、それぞれの側で初めて見た時刻」を覚える（P-49、2026-11-27）。
+        # 前は両方で変わった時に、アプリは案件全体の更新時刻・.company はファイルの更新時刻で比べていたので、
+        # アプリで別の項目を触っただけでアプリが新しいことになり、.company の新しい progress が古い値で上書きされた
+        prev_seen = prev.get('seen', {})
+        seen = {}
+        for f in ('due', 'stage', 'progress'):
+            ps = prev_seen.get(f, {})
+            sj = ps.get('job') if ps.get('job') and ps['job'][0] == jv[f] else [jv[f], job_time]
+            sa = ps.get('app') if ps.get('app') and ps['app'][0] == av[f] else [av[f], app_field_time(p, f) or app_time]
+            seen[f] = {'job': sj, 'app': sa}
         for f in ('due', 'stage', 'progress'):
             j, ap, b = jv[f], av[f], base.get(f)
             if j == ap:
@@ -1999,8 +2018,9 @@ def cmd_company(a) -> None:
                 to_job[f] = ap
             elif b is not None and ap == b:  # アプリは変わっていない → .company の変更を反映
                 to_app[f] = j
-            else:                           # 両方変わった（初めての時も）→ 後から変えた方、同じならアプリ
-                winner = 'company' if job_time > app_time else 'app'
+            else:                           # 両方変わった（初めての時も）→ 後から変えた方（その値を初めて見た時刻で比べる）、同じならアプリ
+                tj, ta = seen[f]['job'][1] or '', seen[f]['app'][1] or ''
+                winner = 'company' if tj > ta else 'app'
                 (to_app if winner == 'company' else to_job)[f] = j if winner == 'company' else ap
                 report.append(f'⚠ {key}: {f} が両方で変わっていた（.company「{j}」/ アプリ「{ap}」）→ '
                               f'{"後から変えた .company" if winner == "company" else "アプリ"}の値にした')
@@ -2019,7 +2039,11 @@ def cmd_company(a) -> None:
         merged = {f: (to_app.get(f) or to_job.get(f) or jv[f] or av[f]) for f in ('due', 'stage', 'progress')}
         for k in [k for k, v in state.items() if v.get('id') == pid and k != key]:
             del state[k]   # 移す前の名前は消す
-        state[key] = {'id': pid, 'values': merged}
+        for f in ('due', 'stage', 'progress'):   # そろえた後は両方とも merged。時刻は勝った側の物を残す
+            src = 'app' if f in to_job else 'job'
+            t = seen[f][src][1]
+            seen[f] = {'job': [merged[f], t], 'app': [merged[f], t]}
+        state[key] = {'id': pid, 'values': merged, 'seen': seen}
     # 提出フォルダの動画（アプリ 0.19.0 から。古い版の写しなら書かずに知らせる）
     try:
         d_patches, d_report = delivery_patches(m, {**ib, 'patches': (ib.get('patches') or []) + patches})

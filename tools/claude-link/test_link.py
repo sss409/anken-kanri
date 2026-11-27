@@ -103,7 +103,7 @@ def main():
     rc, out = claude('add', '--client', '吠瑠うに', '--title', '1120_テスト', '--kind', 'long', '--due', '2026-11-25', '--start', '2026-11-20', '--price', '15000')
     check('同じ案件は二重に足さない', rc == 1, out)
     # 追加してすぐ（アプリが取り込む前に）変えても、競合にならない
-    claude('add', '--client', '吠瑠うに', '--title', '1121_続けて', '--kind', 'long', '--due', '2026-11-26', '--price', '15000', '--progress', 'はじめ')
+    claude('add', '--client', '吠瑠うに', '--title', '1121_続けて', '--kind', 'long', '--due', '2026-11-26', '--start', '2026-11-21', '--price', '15000', '--progress', 'はじめ')  # 着手日を決めておく（無いと今日になり、11/27 から納期より後で止まった）
     claude('set', '1121_続けて', '--progress', 'つぎ')
     out = app()
     p = next(p for p in appdata()['projects'] if p['title'] == '1121_続けて')

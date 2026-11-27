@@ -1,6 +1,10 @@
 # 変更履歴
 
 ## 未リリース
+
+## 0.25.0 - 2026-11-27
+- 案件の項目ごとに変えた時刻（`fieldAt`）を残す。Claude と同じ項目を両方で変えた時、anken.py はその項目の時刻で新しい方を選ぶ（P-49）。11/27 朝、アプリで別の項目を触っただけで案件全体の更新時刻が新しくなり、.company の新しい進行メモが古い値で上書きされたため。Claude の変更を当てた時（claude-link.js）も、その項目に Claude の時刻を残す
+- anken.py: 両方で変わった時に、項目ごとに「その値をそれぞれの側で初めて見た時刻」も覚えて比べる（state の seen）。試し `tools/claude-link/test_p49.py`
 - Claude から同期（アプリを開かなくても）: `tools/claude-link/drive-sync.cjs`（login・sync・status）。アプリと同じ Google Cloud プロジェクトの「デスクトップ アプリ」用 OAuth クライアントで、appDataFolder のデータに受け箱を当てて書き戻し、写しを書く。当て方・写しの形はアプリの js/claude-link.js・js/sync.js をそのまま使う。秘密は %APPDATA%\anken-kanri-claude（リポジトリの外）
 - anken.py `sync`（同期 1 回分）。`company` は先に同期する（`--no-sync` で飛ばす・ログイン前は黙って飛ばす）。同期した写しの控え（.company/.anken/mirror-cache.json）が G:\ の写しより新しければそちらを読む
 

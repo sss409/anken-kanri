@@ -1,7 +1,7 @@
 // util.js・db.js・config.js・sync.js を先に読み込んでおくこと（index.html をダブルクリックで開けるよう、モジュールにしていない）
 
 // 配布時のバージョン。上げたら CHANGELOG.md も更新する
-const APP_VERSION = '0.24.0';
+const APP_VERSION = '0.25.0';
 
 const $ = (id) => document.getElementById(id);
 
@@ -35,8 +35,21 @@ function prefSet(key, value) {
 const nowIso = () => new Date().toISOString();
 
 // 変更したレコードには updatedAt を付ける（同期で新しい方を残すため）
+// 項目ごとに変えた時刻も fieldAt に残す（0.25.0）。Claude と同じ項目を両方で変えた時に、
+// 案件全体の updatedAt ではなくその項目を変えた時刻で新しい方を選ぶため（別の項目を触っただけで勝たない）
 async function upsert(p) {
-  p = { ...p, updatedAt: nowIso(), changedBy: 'アプリ' };
+  const now = nowIso();
+  const old = state.projects.find((x) => x.id === p.id);
+  // 新しく作った案件には付けない（作った時刻＝updatedAt で足りる）。すでにある案件の、変わった項目だけ
+  const fieldAt = { ...(old?.fieldAt ?? {}) };
+  const skip = new Set(['id', 'createdAt', 'updatedAt', 'changedBy', 'fieldAt']);
+  if (old) {
+    for (const k of new Set([...Object.keys(p), ...Object.keys(old)])) {
+      if (skip.has(k)) continue;
+      if (JSON.stringify(old[k] ?? null) !== JSON.stringify(p[k] ?? null)) fieldAt[k] = now;
+    }
+  }
+  p = { ...p, fieldAt, updatedAt: now, changedBy: 'アプリ' };
   const i = state.projects.findIndex((x) => x.id === p.id);
   if (i >= 0) state.projects[i] = p; else state.projects.push(p);
   await saveProject(p);

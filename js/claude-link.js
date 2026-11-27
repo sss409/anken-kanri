@@ -161,8 +161,8 @@ function applyClaudePatches(data, patches, doneIds, now = new Date().toISOString
             if (d === 'set') set.push(k); else if (d === 'keep') kept.push(k);
           }
           if (set.length) {
-            const np = { ...p, updatedAt: now, changedBy: by };
-            for (const k of set) np[k] = after[k];
+            const np = { ...p, updatedAt: now, changedBy: by, fieldAt: { ...(p.fieldAt ?? {}) } };
+            for (const k of set) { np[k] = after[k]; np.fieldAt[k] = patch.at ?? now; }   // 項目ごとの時刻（0.25.0）
             projects[i] = np;
             changed = true;
           }
